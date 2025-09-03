@@ -1,0 +1,13 @@
+{
+  "name": "minority-mayhem",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "concurrently \"npm --prefix apps/server run dev\" \"npm --prefix apps/host run dev\"",
+    "dev:server": "npm --prefix apps/server run dev",
+    "dev:host": "npm --prefix apps/host run dev"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}
