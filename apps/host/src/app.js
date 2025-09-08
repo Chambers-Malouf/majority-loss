@@ -27,6 +27,8 @@ function el(tag, attrs = {}, ...children) {
 
 // local UI state
 const app = document.getElementById("app");
+let isRoundActive = false;
+let secondsRemaining = 0;
 let roomId = null;
 let myId = null;         
 let myName = null;

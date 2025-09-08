@@ -13,6 +13,7 @@ const CORS_ORIGIN = (process.env.CORS_ORIGIN || "*").split(",").map(s => s.trim(
 const app = express();
 app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
 app.get("/healthz", (_, res) => res.json({ ok: true }));
+app.get("/", (_, res) => res.status(200).send("OK")); // simple health check
 
 // ---- HTTP + Socket.IO
 const server = http.createServer(app);
@@ -39,6 +40,40 @@ function sendRoomState(roomId) {
   io.to(roomId).emit("room_state", { roomId, players });
 }
 
+// ---- NEW: start round helper
+function startRound(roomId, durationSec = 10) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+
+  // clear any previous timer
+  if (room.timer) {
+    clearInterval(room.timer);
+    room.timer = null;
+  }
+
+  const D = Math.max(1, Math.min(300, Number(durationSec) || 10)); // clamp 1..300s
+  room.endAt = Date.now() + D * 1000;
+
+  // notify everyone that the round started
+  io.to(roomId).emit("round_started", { duration: D, endAt: room.endAt });
+
+  // tick every second
+  room.timer = setInterval(() => {
+    const remaining = Math.max(0, Math.ceil((room.endAt - Date.now()) / 1000));
+    io.to(roomId).emit("round_tick", { remaining });
+
+    if (remaining <= 0) {
+      clearInterval(room.timer);
+      room.timer = null;
+      room.endAt = null;
+
+      // later: tally answers and send results
+      io.to(roomId).emit("game_over");
+    }
+  }, 1000);
+}
+
+// ---- socket handlers
 io.on("connection", (socket) => {
   console.log("client connected:", socket.id);
 
@@ -50,13 +85,25 @@ io.on("connection", (socket) => {
     rooms.set(roomId, {
       roomId,
       players: new Map(),  
-      round: null          
+      round: null,
+      timer: null,   // NEW
+      endAt: null    // NEW
     });
 
-    // ---- join socket
     socket.join(roomId);
     console.log(`room created: ${roomId}`);
     ack?.({ roomId });
+  });
+
+  // ---- start game (kick off countdown)
+  socket.on("start_game", ({ roomId, duration } = {}, ack) => {
+    const room = rooms.get(roomId);
+    if (!room) return ack?.({ error: "ROOM_NOT_FOUND" });
+
+    if (!room.players.has(socket.id)) return ack?.({ error: "NOT_IN_ROOM" });
+
+    startRound(roomId, duration || 10);
+    ack?.({ ok: true });
   });
 
   // ---- join room
@@ -64,10 +111,8 @@ io.on("connection", (socket) => {
     const room = rooms.get(roomId);
     if (!room) return ack?.({ error: "ROOM_NOT_FOUND" });
 
-    // record player
     room.players.set(socket.id, { id: socket.id, name: name?.trim() || "Player" });
 
-    // join the Socket.IO room and notify everyone
     socket.join(roomId);
     sendRoomState(roomId);
 
@@ -80,6 +125,7 @@ io.on("connection", (socket) => {
     for (const [roomId, room] of rooms) {
       if (room.players.delete(socket.id)) {
         if (room.players.size === 0) {
+          if (room.timer) clearInterval(room.timer); // NEW: stop timer when room is empty
           rooms.delete(roomId);
           console.log(`room ${roomId} deleted (empty)`);
         } else {
@@ -92,7 +138,7 @@ io.on("connection", (socket) => {
   });
 });
 
-// ---- listeners
+// ---- start server
 server.listen(PORT, "0.0.0.0", () =>
   console.log("Server running on http://localhost:" + PORT)
 );
