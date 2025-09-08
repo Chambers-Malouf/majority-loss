@@ -7,7 +7,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const PORT = process.env.PORT || 8080;
-const CORS_ORIGIN = process.env.CORS_ORIGIN || "*";
+const CORS_ORIGIN = (process.env.CORS_ORIGIN || "*").split(",").map(s => s.trim());
 
 // ---- Express setup
 const app = express();
