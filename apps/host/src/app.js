@@ -45,7 +45,7 @@ function renderHome() {
 
   app.appendChild(
     el("div", { class: "card" },
-      el("h1", {}, "Minority Mayhem"),
+      el("h1", {}, "Majority Loss"),
       nameInput,
       codeInput,
       el("div", {}, createBtn, joinBtn),
