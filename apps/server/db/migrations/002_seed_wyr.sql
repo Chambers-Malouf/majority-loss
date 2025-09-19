@@ -78,3 +78,23 @@ INSERT INTO options (question_id, text, sort_order)
 SELECT id, 'fly', 1 FROM q 
 UNION ALL 
 SELECT id, 'invisible', 2 FROM q;
+--9-----------------------------------------------------------------------------------------
+WITH q AS (
+    INSERT INTO questions (text)
+    VALUES ('Would you rather, be drunk or high?')
+    RETURNING id
+)
+INSERT INTO options (question_id, text, sort_order)
+SELECT id, 'drunk', 1 FROM q 
+UNION ALL 
+SELECT id, 'high', 2 FROM q;
+--10-----------------------------------------------------------------------------------------
+WITH q AS (
+    INSERT INTO questions (text)
+    VALUES ('Would you rather, be whomped or bagged out?')
+    RETURNING id
+)
+INSERT INTO options (question_id, text, sort_order)
+SELECT id, 'whomped', 1 FROM q 
+UNION ALL 
+SELECT id, 'bagged out', 2 FROM q;

@@ -1,4 +1,4 @@
--- initializing the tables
+-- initializing the original tables
 
 -- 1) users: represents persitent accounts (may implement later, not needed now)
 CREATE TABLE IF NOT EXISTS users(

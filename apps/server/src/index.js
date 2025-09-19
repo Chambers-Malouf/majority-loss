@@ -3,8 +3,18 @@ import http from "http";
 import { Server } from "socket.io";
 import cors from "cors";
 import dotenv from "dotenv";
+import pg from "pg";
+
+const { Pool } = pg;
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.PGSSL?.toLowerCase() === "true"
+  ? {rejectedUnauthorized: false }
+  : false,
+})
 
 dotenv.config();
+console.log("DB URL LOADED?", !! process.env.DATABASE_URL);
 
 const PORT = process.env.PORT || 8080;
 const CORS_ORIGIN = (process.env.CORS_ORIGIN || "*").split(",").map(s => s.trim());
@@ -24,6 +34,17 @@ const io = new Server(server, {
 // ---- game state
 const rooms = new Map();
 
+/*async function getOrCreateGameByCode(code, maxPoints = 5) {
+  const q = 
+  INSERT INTO games (code, max_points)
+  VALUES ($1,$2)
+  ON CONFLICT (code) DO UPDATE SET max_points = EXCLUDED.max_points
+  RETURNING id, code, status, max_points
+  ;
+  const {rows } = await pool.query(q, [code, maxPoints]);
+  return rows[0];
+}
+*/
 // ---- make game room
 function makeRoomId() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; 
