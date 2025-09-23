@@ -17,6 +17,30 @@ const pool = new Pool({
 
 console.log("DB URL LOADED?", !!process.env.DATABASE_URL);
 
+// DB: upsert a game by code and return its row
+async function getOrCreateGameByCode(code, maxPoints = 5) {
+  const q = `
+    INSERT INTO games (code, max_points)
+    VALUES ($1, $2)
+    ON CONFLICT (code) DO UPDATE SET
+      max_points = EXCLUDED.max_points
+    RETURNING id, code, status, max_points
+  `;
+  const { rows } = await pool.query(q, [code, maxPoints]); // $1=code, $2=maxPoints
+  return rows[0];
+}
+// DB: add a player row for a game and return it
+async function addPlayer(gameId, displayName = "Player") {
+  const q = `
+    INSERT INTO player_game (game_id, display_name, points)
+    VALUES ($1, $2, 0)
+    RETURNING id, game_id, display_name, points
+  `;
+  const { rows } = await pool.query(q, [gameId, displayName]); // $1=gameId, $2=name
+  return rows[0];
+}
+
+
 
 const PORT = process.env.PORT || 8080;
 const CORS_ORIGIN = (process.env.CORS_ORIGIN || "*").split(",").map(s => s.trim());
@@ -24,7 +48,7 @@ const CORS_ORIGIN = (process.env.CORS_ORIGIN || "*").split(",").map(s => s.trim(
 // ---- Express setup
 const app = express();
 app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
-app.get("/healthz", (_, res) => res.json({ ok: true }));
+app.get("/healthz", (_req, res) => res.json({ ok: true, build: "debug-4" }));
 app.get("/", (_, res) => res.status(200).send("OK")); // simple health check
 
 // ---- HTTP + Socket.IO
@@ -36,17 +60,6 @@ const io = new Server(server, {
 // ---- game state
 const rooms = new Map();
 
-/*async function getOrCreateGameByCode(code, maxPoints = 5) {
-  const q = 
-  INSERT INTO games (code, max_points)
-  VALUES ($1,$2)
-  ON CONFLICT (code) DO UPDATE SET max_points = EXCLUDED.max_points
-  RETURNING id, code, status, max_points
-  ;
-  const {rows } = await pool.query(q, [code, maxPoints]);
-  return rows[0];
-}
-*/
 // ---- make game room
 function makeRoomId() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; 
@@ -101,22 +114,27 @@ io.on("connection", (socket) => {
   console.log("client connected:", socket.id);
 
   // ---- create room
-  socket.on("host_create", (ack) => {
-    let roomId;
-    do { roomId = makeRoomId(); } while (rooms.has(roomId));
+socket.on("host_create", async (ack) => {
+  let roomId;
+  do { roomId = makeRoomId(); } while (rooms.has(roomId));
 
-    rooms.set(roomId, {
-      roomId,
-      players: new Map(),  
-      round: null,
-      timer: null,   // NEW
-      endAt: null    // NEW
-    });
+  // create/upsert the DB game row for this lobby code
+  const game = await getOrCreateGameByCode(roomId, 5);
 
-    socket.join(roomId);
-    console.log(`room created: ${roomId}`);
-    ack?.({ roomId });
+  rooms.set(roomId, {
+    roomId,
+    players: new Map(),
+    round: null,
+    timer: null,
+    endAt: null,
+    gameId: game.id, // <-- keep the DB id on the room
   });
+
+  socket.join(roomId);
+  console.log(`room created: ${roomId} (game id: ${game.id})`);
+  ack?.({ roomId, gameId: game.id });
+});
+
 
   // ---- start game (kick off countdown)
   socket.on("start_game", ({ roomId, duration } = {}, ack) => {
@@ -130,18 +148,27 @@ io.on("connection", (socket) => {
   });
 
   // ---- join room
-  socket.on("join_room", ({ roomId, name }, ack) => {
-    const room = rooms.get(roomId);
-    if (!room) return ack?.({ error: "ROOM_NOT_FOUND" });
+socket.on("join_room", async ({ roomId, name }, ack) => {
+  const room = rooms.get(roomId);
+  if (!room) return ack?.({ error: "ROOM_NOT_FOUND" });
 
-    room.players.set(socket.id, { id: socket.id, name: name?.trim() || "Player" });
+  // write to DB
+  const p = await addPlayer(room.gameId, (name || "Player").trim());
 
-    socket.join(roomId);
-    sendRoomState(roomId);
-
-    ack?.({ ok: true, playerId: socket.id });
-    console.log(`player ${socket.id} joined ${roomId} as "${name}"`);
+  // track in-memory
+  room.players.set(socket.id, {
+    id: socket.id,
+    name: p.display_name,
+    playerGameId: p.id,
+    points: p.points,
   });
+
+  socket.join(roomId);
+  sendRoomState(roomId);
+  ack?.({ ok: true, playerId: socket.id });
+  console.log(`player ${socket.id} joined ${roomId} as "${p.display_name}" (pg:${p.id})`);
+});
+
 
   // ---- disconnect
   socket.on("disconnect", () => {
@@ -159,6 +186,32 @@ io.on("connection", (socket) => {
     }
     console.log("client disconnected:", socket.id);
   });
+});
+
+// ---- DEBUG (temporary): quick DB checks
+app.get("/debug/games", async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      "SELECT id, code, status, max_points FROM games ORDER BY id DESC LIMIT 20"
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("Error fetching games:", err);
+    res.status(500).json({ error: "db_error" });
+  }
+});
+
+app.get("/debug/players/:gameId", async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      "SELECT id, display_name, points FROM player_game WHERE game_id = $1 ORDER BY id",
+      [req.params.gameId]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("Error fetching players:", err);
+    res.status(500).json({ error: "db_error" });
+  }
 });
 
 // ---- start server
