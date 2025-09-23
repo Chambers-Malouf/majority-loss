@@ -66,6 +66,7 @@ function onCreateRoom() {
       if (ack?.error) return alert(ack.error);
       myId = ack.playerId;                     
       renderLobby();
+      socket.emit("start_game", { roomId, duration: 10 }, (ack) => console.log("test start ack:", ack));
     });
   });
 }
