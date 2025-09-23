@@ -35,13 +35,13 @@ let myId = null;
 let myName = null;
 let players = [];
 let voted = {};
+let screen = "home"; // "home" | "lobby" | "question" | "results"
 
 // 4) On any reconnect (Render can sleep, wifi hiccups, page refresh),
 //    automatically rejoin the last known room if we had one.
 socket.on("connect", () => {
   if (roomId && myName) {
     socket.emit("join_room", { roomId, name: myName }, (ack) => {
-      // If the server rejects, we just stay on the lobby UI; Start will show errors if any.
       if (ack?.error) {
         console.warn("Rejoin failed:", ack.error);
       }
@@ -51,6 +51,7 @@ socket.on("connect", () => {
 
 // 5) Initial home screen: name input + room code + Create/Join buttons.
 function renderHome() {
+  screen = "home";
   app.innerHTML = "";
   const nameInput = el("input", { placeholder: "Your name", maxlength: "16" });
   const codeInput = el("input", { placeholder: "Room code (e.g., ABC123)", maxlength: "6", class: "mt-8" });
@@ -96,6 +97,7 @@ function onJoinRoom(code, name) {
 
 // 8) Lobby screen: show room code, player list, and Start button for host.
 function renderLobby() {
+  screen = "lobby";
   app.innerHTML = "";
 
   const header = el("div", { class: "card" },
@@ -115,15 +117,23 @@ function renderLobby() {
   }
 
   let startWrap = null;
-  if (isHost && !isRoundActive) {
+  if (isHost && screen === "lobby" && !isRoundActive) {
     const canStart = players.length >= 3; // keep your 3+ rule
     const startBtn = el("button", {
       class: "btn mt-12",
       disabled: !canStart,
       onclick: () => {
-        const payload = { roomId, duration: 20 };
-        // Try to start; if NOT_IN_ROOM, rejoin and retry once.
+        const payload = { roomId, duration: 20, durationSeconds: 20 }; // send both keys for compatibility
+        let acked = false;
+
+        const failTimer = setTimeout(() => {
+          if (!acked) alert("Server didn’t start the round (no response). Check server logs.");
+        }, 4000);
+
         socket.emit("start_game", payload, (ack) => {
+          acked = true;
+          clearTimeout(failTimer);
+
           if (ack?.error === "NOT_IN_ROOM") {
             socket.emit("join_room", { roomId, name: myName }, () => {
               socket.emit("start_game", payload, (ack2) => {
@@ -147,6 +157,7 @@ function renderLobby() {
 
 // 9) Question screen for an active round.
 function renderQuestion({ question, options, roundId, roundNumber }) {
+  screen = "question";
   app.innerHTML = "";
 
   const title = el("div", { class: "card" },
@@ -163,7 +174,6 @@ function renderQuestion({ question, options, roundId, roundNumber }) {
     const b = el("button", {
       class: "btn mr-8",
       onclick: () => {
-        // prevent double-vote in UI
         Array.from(btns.querySelectorAll("button")).forEach(x => x.disabled = true);
         socket.emit("vote", { roomId, roundId, optionId: opt.id }, (ack) => {
           if (ack?.error) alert(ack.error);
@@ -180,12 +190,13 @@ function renderQuestion({ question, options, roundId, roundNumber }) {
   app.appendChild(title);
   app.appendChild(qCard);
 
-  // keep a reference so we can update countdown text later
+  // Keep a reference so we can update countdown text later.
   renderQuestion._timerEl = timer;
 }
 
 // 10) Results screen at the end of a round.
 function renderResults({ roundId, winningOptionId, counts }) {
+  screen = "results";
   app.innerHTML = "";
 
   const card = el("div", { class: "card" },
@@ -220,12 +231,18 @@ function renderResults({ roundId, winningOptionId, counts }) {
 socket.on("room_state", (s) => {
   if (s.roomId) roomId = s.roomId;
   players = s.players || [];
-  renderLobby();
+
+  // Only re-render the lobby when we’re actually on the lobby screen
+  // and not in the middle of a round.
+  if (screen === "lobby" && !isRoundActive) {
+    renderLobby();
+  }
 });
 
 socket.on("vote_status", ({ voted: v }) => {
   voted = v || {};
-  if (roomId) renderLobby();
+  // Only redraw lobby if that’s the current screen.
+  if (screen === "lobby") renderLobby();
 });
 
 // Server sends the new round payload when a round starts.
@@ -254,14 +271,14 @@ socket.on("round_results", ({ roundId, winningOptionId, counts }) => {
 
 // Optional: server tells us the whole game ended.
 socket.on("game_over", () => {
-  // Only trigger if the game really ran through 10 rounds
+  // Only trigger the popup if we really ran through 10 rounds.
   if (currentRound && currentRound.number >= 10) {
     isRoundActive = false;
     currentRound = null;
     alert("Game over!");
     renderLobby();
   } else {
-    // Otherwise just quietly return to lobby without popup
+    // Otherwise just quietly return to lobby without popup.
     isRoundActive = false;
     currentRound = null;
     renderLobby();
