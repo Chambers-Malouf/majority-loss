@@ -91,30 +91,39 @@ function renderLobby() {
     el("div", { class: "small" }, "Share this code for friends to join")
   );
 
-  const list = el("div", { class: "card" },
-    el("h3", {}, "Players"),
-  );
-
-  players.forEach(p => {
-    const status = voted[p.id] ? "✅ vote placed" : "⏳ waiting";
-    const me = (p.id === myId) ? " (you)" : "";
-    list.appendChild(el("div", {}, `${p.name}${me} - ${status}`));
-  });
+  const list = el("div", { class: "card" }, el("h3", {}, "Players"));
+  if (!players.length) {
+    list.appendChild(el("div", {}, "(no players yet)"));
+  } else {
+    players.forEach(p => {
+      const status = voted[p.id] ? "✅ ready" : "⏳ waiting";
+      const me = p.id === myId ? " (you)" : "";
+      list.appendChild(el("div", {}, `${p.name}${me} - ${status}`));
+    });
+  }
 
   let startWrap = null;
   if (isHost && !isRoundActive) {
-    startWrap = el("div", { class: "mt-12" },
-      el("button", { class: "btn", 
-        onclick: () => socket.emit("start_game", { roomId, duration: 20}) }, (ack) => {
-          if (ack?.error) return alert(ack.error);
-        }, players.length >= 3 ? "Start Game" : "Need at least 3 players"
-    ));
+    const canStart = players.length >= 3;
+    const startBtn = el("button", {
+      class: "btn mt-12",
+      disabled: !canStart,
+      onclick: () =>
+        socket.emit(
+          "start_game",
+          { roomId, duration: 20 },
+          (ack) => { if (ack?.error) alert(ack.error); }
+        )
+    }, canStart ? "Start Game" : "Need at least 3 players");
+
+    startWrap = el("div", {}, startBtn);
   }
-  app.innerHTML = "";
+
   app.appendChild(header);
   app.appendChild(list);
   if (startWrap) app.appendChild(startWrap);
 }
+
 function renderQuestion({ question, options, roundId, roundNumber }) {
   app.innerHTML = "";
 
