@@ -5,16 +5,18 @@ import cors from "cors";
 import dotenv from "dotenv";
 import pg from "pg";
 
+dotenv.config();
+
 const { Pool } = pg;
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.PGSSL?.toLowerCase() === "true"
-  ? {rejectedUnauthorized: false }
-  : false,
-})
+    ? { rejectUnauthorized: false }
+    : false,
+});
 
-dotenv.config();
-console.log("DB URL LOADED?", !! process.env.DATABASE_URL);
+console.log("DB URL LOADED?", !!process.env.DATABASE_URL);
+
 
 const PORT = process.env.PORT || 8080;
 const CORS_ORIGIN = (process.env.CORS_ORIGIN || "*").split(",").map(s => s.trim());
