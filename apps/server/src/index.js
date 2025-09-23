@@ -134,7 +134,6 @@ socket.on("host_create", async (ack) => {
   ack?.({ roomId, gameId: game.id });
 });
 
-
   // ---- start game (kick off countdown)
   socket.on("start_game", ({ roomId, duration } = {}, ack) => {
     const room = rooms.get(roomId);

@@ -113,33 +113,25 @@ function renderLobby() {
     list.appendChild(el("div", {}, "(no players yet)"));
   } else {
     players.forEach(p => {
-      const status = voted[p.id] ? "✅ ready" : "⏳ waiting";
       const me = p.id === myId ? " (you)" : "";
-      list.appendChild(el("div", {}, `${p.name}${me} - ${status}`));
+      list.appendChild(el("div", {}, `${p.name}${me}`));  // no ready/waiting
     });
   }
 
   let startWrap = null;
   if (isHost && screen === "lobby" && !isRoundActive) {
-    const canStart = players.length >= 3; // keep your 3+ rule
     const startBtn = el("button", {
       class: "btn mt-12",
-      disabled: !canStart,
       onclick: () => {
-        // Emit to server (it already emits 'round_started'); our listener below
-        // will swap screens. This keeps behavior consistent across clients.
-        const payload = { roomId, duration: 20, durationSeconds: 20 };
-        socket.emit("start_game", payload, (ack) => {
-          if (ack?.error === "NOT_IN_ROOM") {
-            socket.emit("join_room", { roomId, name: myName }, () => {
-              socket.emit("start_game", payload);
-            });
-            return;
-          }
-          if (ack?.error) alert(ack.error);
-        });
+        // simplest possible: flip to the game screen locally
+        isRoundActive = true;          // prevents lobby auto-rerender
+        secondsRemaining = 20;         // optional: show a number on that screen
+        renderGameStarted({ duration: 20 });
+
+        // (optional later) notify server so other clients follow:
+        // socket.emit("start_game", { roomId, duration: 20 });
       }
-    }, canStart ? "Start Game" : "Need at least 3 players");
+    }, "Start Game");
 
     startWrap = el("div", {}, startBtn);
   }
@@ -148,6 +140,7 @@ function renderLobby() {
   app.appendChild(list);
   if (startWrap) app.appendChild(startWrap);
 }
+
 
 // 8.5) Game-started screen (very simple)
 function renderGameStarted({ duration, endAt } = {}) {
