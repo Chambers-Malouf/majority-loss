@@ -7,6 +7,20 @@ const socket = io(SOCKET_URL, {
   transports: ["websocket"], 
 });
 
+// === DEBUG/CONSOLE ACCESS ===
+window.socket = socket;                        // let DevTools see the socket
+window.startTest = () => {                     // one-click test for start_game
+  socket.emit("start_game", { roomId, duration: 10 }, (ack) =>
+    console.log("test start ack:", ack)
+  );
+};
+window.watchServer = () => {                   // log important server events
+  ["room_state","round_question","round_tick","round_results","game_over","vote_status"]
+    .forEach(evt => socket.on(evt, data => console.log("<<", evt, data)));
+  console.log("watchServer: listeners attached");
+};
+
+
 
 // DOM helper
 function el(tag, attrs = {}, ...children) {
