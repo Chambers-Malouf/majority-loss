@@ -213,6 +213,32 @@ app.get("/debug/players/:gameId", async (req, res) => {
     res.status(500).json({ error: "db_error" });
   }
 });
+// quick DB pings (TEMP)
+app.get("/debug/pingdb", async (_req, res) => {
+  try {
+    const { rows } = await pool.query("select 1 as ok");
+    res.json(rows[0]); // { ok: 1 }
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/debug/tables", async (_req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+      ORDER BY 1
+    `);
+    res.json(rows); // [{table_name: "..."}]
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 
 // ---- start server
 server.listen(PORT, "0.0.0.0", () =>
