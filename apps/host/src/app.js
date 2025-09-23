@@ -1,35 +1,21 @@
 // apps/host/src/app.js
-// connecting to server
+
+// 1) Connect to the Socket.IO server using WebSocket transport only.
 import { io } from "socket.io-client";
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
 
 const socket = io(SOCKET_URL, {
-  transports: ["websocket"], 
+  transports: ["websocket"],
 });
 
-// === DEBUG/CONSOLE ACCESS ===
-window.socket = socket;                        // let DevTools see the socket watchers
-window.startTest = () => {                     // one-click test for start_game
-  socket.emit("start_game", { roomId, duration: 10 }, (ack) =>
-    console.log("test start ack:", ack)
-  );
-};
-window.watchServer = () => {                   // log important server events
-  ["room_state","round_question","round_tick","round_results","game_over","vote_status"]
-    .forEach(evt => socket.on(evt, data => console.log("<<", evt, data)));
-  console.log("watchServer: listeners attached");
-};
-
-
-
-// DOM helper
+// 2) Small DOM helper to create elements with attributes and children.
 function el(tag, attrs = {}, ...children) {
   const e = document.createElement(tag);
   for (const k in attrs) {
     const v = attrs[k];
     if (k === "class") e.className = v;
     else if (k === "style") e.style.cssText = v;
-    else if (k.startsWith("on") && typeof v === "function") e[k] = v; 
+    else if (k.startsWith("on") && typeof v === "function") e[k] = v;
     else e.setAttribute(k, v);
   }
   for (const c of children) {
@@ -38,20 +24,32 @@ function el(tag, attrs = {}, ...children) {
   return e;
 }
 
-
-// local UI state
+// 3) Local UI state kept in this tab.
 const app = document.getElementById("app");
 let isHost = false;
 let currentRound = null;
 let isRoundActive = false;
 let secondsRemaining = 0;
 let roomId = null;
-let myId = null;         
+let myId = null;
 let myName = null;
 let players = [];
 let voted = {};
 
-// initial screen
+// 4) On any reconnect (Render can sleep, wifi hiccups, page refresh),
+//    automatically rejoin the last known room if we had one.
+socket.on("connect", () => {
+  if (roomId && myName) {
+    socket.emit("join_room", { roomId, name: myName }, (ack) => {
+      // If the server rejects, we just stay on the lobby UI; Start will show errors if any.
+      if (ack?.error) {
+        console.warn("Rejoin failed:", ack.error);
+      }
+    });
+  }
+});
+
+// 5) Initial home screen: name input + room code + Create/Join buttons.
 function renderHome() {
   app.innerHTML = "";
   const nameInput = el("input", { placeholder: "Your name", maxlength: "16" });
@@ -70,34 +68,33 @@ function renderHome() {
   );
 }
 
-// create room
-function onCreateRoom() {  
+// 6) Create room flow for the host: ask name → host_create → join_room → show lobby.
+function onCreateRoom() {
   if (!myName) myName = prompt("Enter your name")?.trim() || "Player";
   isHost = true;
   socket.emit("host_create", (res) => {
     roomId = res.roomId;
     socket.emit("join_room", { roomId, name: myName }, (ack) => {
       if (ack?.error) return alert(ack.error);
-      myId = ack.playerId;                     
+      myId = ack.playerId;
       renderLobby();
-      socket.emit("start_game", { roomId, duration: 10 }, (ack) => console.log("test start ack:", ack));
     });
   });
 }
 
-// join room
+// 7) Join an existing room flow for players.
 function onJoinRoom(code, name) {
   roomId = (code || "").trim().toUpperCase();
   myName = (name || "").trim() || "Player";
   if (!roomId) return alert("Enter a room code.");
   socket.emit("join_room", { roomId, name: myName }, (ack) => {
     if (ack?.error) return alert(ack.error);
-    myId = ack.playerId;                    
+    myId = ack.playerId;
     renderLobby();
   });
 }
 
-// lobby screen
+// 8) Lobby screen: show room code, player list, and Start button for host.
 function renderLobby() {
   app.innerHTML = "";
 
@@ -119,16 +116,25 @@ function renderLobby() {
 
   let startWrap = null;
   if (isHost && !isRoundActive) {
-    const canStart = players.length >= 3;
+    const canStart = players.length >= 3; // keep your 3+ rule
     const startBtn = el("button", {
       class: "btn mt-12",
       disabled: !canStart,
-      onclick: () =>
-        socket.emit(
-          "start_game",
-          { roomId, duration: 20 },
-          (ack) => { if (ack?.error) alert(ack.error); }
-        )
+      onclick: () => {
+        const payload = { roomId, duration: 20 };
+        // Try to start; if NOT_IN_ROOM, rejoin and retry once.
+        socket.emit("start_game", payload, (ack) => {
+          if (ack?.error === "NOT_IN_ROOM") {
+            socket.emit("join_room", { roomId, name: myName }, () => {
+              socket.emit("start_game", payload, (ack2) => {
+                if (ack2?.error) alert(ack2.error);
+              });
+            });
+            return;
+          }
+          if (ack?.error) alert(ack.error);
+        });
+      }
     }, canStart ? "Start Game" : "Need at least 3 players");
 
     startWrap = el("div", {}, startBtn);
@@ -139,6 +145,7 @@ function renderLobby() {
   if (startWrap) app.appendChild(startWrap);
 }
 
+// 9) Question screen for an active round.
 function renderQuestion({ question, options, roundId, roundNumber }) {
   app.innerHTML = "";
 
@@ -176,6 +183,8 @@ function renderQuestion({ question, options, roundId, roundNumber }) {
   // keep a reference so we can update countdown text later
   renderQuestion._timerEl = timer;
 }
+
+// 10) Results screen at the end of a round.
 function renderResults({ roundId, winningOptionId, counts }) {
   app.innerHTML = "";
 
@@ -193,7 +202,12 @@ function renderResults({ roundId, winningOptionId, counts }) {
   if (isHost) {
     actions.appendChild(el("button", {
       class: "btn mr-8",
-      onclick: () => socket.emit("start_game", { roomId, duration: 20 })
+      onclick: () => {
+        const payload = { roomId, duration: 20 };
+        socket.emit("start_game", payload, (ack) => {
+          if (ack?.error) alert(ack.error);
+        });
+      }
     }, "Next Round"));
   }
   actions.appendChild(el("button", { class: "btn", onclick: renderLobby }, "Back to Lobby"));
@@ -202,8 +216,7 @@ function renderResults({ roundId, winningOptionId, counts }) {
   app.appendChild(actions);
 }
 
-
-// socket listeners
+// 11) Socket listeners from the server → update UI.
 socket.on("room_state", (s) => {
   if (s.roomId) roomId = s.roomId;
   players = s.players || [];
@@ -214,7 +227,8 @@ socket.on("vote_status", ({ voted: v }) => {
   voted = v || {};
   if (roomId) renderLobby();
 });
-// server broadcasts the chosen question/options at round start
+
+// Server sends the new round payload when a round starts.
 socket.on("round_question", (payload) => {
   // payload: { roundId, roundNumber, question:{id,text}, options:[{id,text}] }
   isRoundActive = true;
@@ -223,7 +237,7 @@ socket.on("round_question", (payload) => {
   renderQuestion(payload);
 });
 
-// server ticks once per second
+// Server ticks once per second with remaining time.
 socket.on("round_tick", ({ remaining }) => {
   secondsRemaining = remaining;
   if (renderQuestion._timerEl) {
@@ -231,20 +245,28 @@ socket.on("round_tick", ({ remaining }) => {
   }
 });
 
-// server announces results when the timer ends
+// Server announces results at the end of the timer.
 socket.on("round_results", ({ roundId, winningOptionId, counts }) => {
   isRoundActive = false;
   currentRound = null;
   renderResults({ roundId, winningOptionId, counts });
 });
 
-// optional: end-of-game signal
+// Optional: server tells us the whole game ended.
 socket.on("game_over", () => {
-  isRoundActive = false;
-  currentRound = null;
-  alert("Game over!");
-  renderLobby();
+  // Only trigger if the game really ran through 10 rounds
+  if (currentRound && currentRound.number >= 10) {
+    isRoundActive = false;
+    currentRound = null;
+    alert("Game over!");
+    renderLobby();
+  } else {
+    // Otherwise just quietly return to lobby without popup
+    isRoundActive = false;
+    currentRound = null;
+    renderLobby();
+  }
 });
 
-// start
+// 12) Boot the app on the home screen.
 renderHome();
