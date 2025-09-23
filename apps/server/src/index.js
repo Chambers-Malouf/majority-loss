@@ -39,6 +39,21 @@ async function addPlayer(gameId, displayName = "Player") {
   const { rows } = await pool.query(q, [gameId, displayName]); // $1=gameId, $2=name
   return rows[0];
 }
+async function getRandomQuestionWithOptions() {
+  const qSql = `SELECT id, text FROM questions ORDER BY random() LIMIT 1`;
+  const qRes = await pool.query(qSql);
+  if (!qRes.rows.length) throw new Error("no_questions");
+
+  const q = qRes.rows[0];
+  const oSql = `SELECT id, text FROM options WHERE question_id = $1 ORDER BY id`;
+  const oRes = await pool.query(oSql, [q.id]);
+
+  return {
+    id: q.id,
+    text: q.text,
+    options: oRes.rows.map(r => ({ id: r.id, text: r.text })),
+  };
+}
 
 
 const PORT = process.env.PORT || 8080;
@@ -76,7 +91,7 @@ function sendRoomState(roomId) {
 }
 
 // ---- NEW: start round helper
-function startRound(roomId, durationSec = 10) {
+async function startRound(roomId, durationSec = 20) {
   const room = rooms.get(roomId);
   if (!room) return;
 
@@ -86,13 +101,30 @@ function startRound(roomId, durationSec = 10) {
     room.timer = null;
   }
 
-  const D = Math.max(1, Math.min(300, Number(durationSec) || 10)); // clamp 1..300s
+  // round bookkeeping
+  room.roundNumber = (room.roundNumber || 0) + 1;
+
+  // pick 1 question from DB
+  const q = await getRandomQuestionWithOptions();
+
+  // create a simple round object (use DB ids for question/options)
+  room.round = {
+    id: `${Date.now()}`,                 // simple unique round id (string)
+    number: room.roundNumber,
+    question: { id: q.id, text: q.text },
+    options: q.options,                  // [{id, text}, ...]
+  };
+
+  // reset votes for this round
+  room.roundVotes = new Map();
+
+  // tell everyone the round question
+  io.to(roomId).emit("round_question", room.round);
+
+  // set & broadcast timer
+  const D = Math.max(1, Math.min(300, Number(durationSec) || 20));
   room.endAt = Date.now() + D * 1000;
 
-  // notify everyone that the round started
-  io.to(roomId).emit("round_started", { duration: D, endAt: room.endAt });
-
-  // tick every second
   room.timer = setInterval(() => {
     const remaining = Math.max(0, Math.ceil((room.endAt - Date.now()) / 1000));
     io.to(roomId).emit("round_tick", { remaining });
@@ -102,11 +134,35 @@ function startRound(roomId, durationSec = 10) {
       room.timer = null;
       room.endAt = null;
 
-      // later: tally answers and send results
-      io.to(roomId).emit("game_over");
+      // tally votes
+      const countsMap = new Map();
+      for (const opt of room.round.options) countsMap.set(opt.id, 0);
+      for (const optId of room.roundVotes.values()) {
+        countsMap.set(optId, (countsMap.get(optId) || 0) + 1);
+      }
+      const counts = Array.from(countsMap.entries())
+        .map(([optionId, count]) => ({ optionId, count }));
+
+      const max = Math.max(0, ...counts.map(c => c.count));
+      const winners = counts.filter(c => c.count === max && max > 0).map(c => c.optionId);
+      const winningOptionId = winners.length === 1 ? winners[0] : null; // null = tie/no votes
+
+      // send results for this round
+      io.to(roomId).emit("round_results", {
+        roundId: room.round.id,
+        winningOptionId,
+        counts,
+      });
+
+      // keep state clean for next round
+      room.round = null;
+      room.roundVotes = new Map();
+
+      // (later) you can auto-start the next round or wait for host click
     }
   }, 1000);
 }
+
 
 // ---- socket handlers
 io.on("connection", (socket) => {
@@ -185,58 +241,6 @@ socket.on("join_room", async ({ roomId, name }, ack) => {
     console.log("client disconnected:", socket.id);
   });
 });
-
-// ---- DEBUG (temporary): quick DB checks
-app.get("/debug/games", async (_req, res) => {
-  try {
-    const { rows } = await pool.query(
-      "SELECT id, code, status, max_points FROM games ORDER BY id DESC LIMIT 20"
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error("Error fetching games:", err);
-    res.status(500).json({ error: "db_error" });
-  }
-});
-
-app.get("/debug/players/:gameId", async (req, res) => {
-  try {
-    const { rows } = await pool.query(
-      "SELECT id, display_name, points FROM player_game WHERE game_id = $1 ORDER BY id",
-      [req.params.gameId]
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error("Error fetching players:", err);
-    res.status(500).json({ error: "db_error" });
-  }
-});
-// quick DB pings (TEMP)
-app.get("/debug/pingdb", async (_req, res) => {
-  try {
-    const { rows } = await pool.query("select 1 as ok");
-    res.json(rows[0]); // { ok: 1 }
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.get("/debug/tables", async (_req, res) => {
-  try {
-    const { rows } = await pool.query(`
-      SELECT table_name
-      FROM information_schema.tables
-      WHERE table_schema = 'public'
-      ORDER BY 1
-    `);
-    res.json(rows); // [{table_name: "..."}]
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: e.message });
-  }
-});
-
 
 // ---- start server
 server.listen(PORT, "0.0.0.0", () =>

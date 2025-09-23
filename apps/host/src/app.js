@@ -123,13 +123,10 @@ function renderLobby() {
     const startBtn = el("button", {
       class: "btn mt-12",
       onclick: () => {
-        // simplest possible: flip to the game screen locally
-        isRoundActive = true;          // prevents lobby auto-rerender
-        secondsRemaining = 20;         // optional: show a number on that screen
+        isRoundActive = true;          
+        secondsRemaining = 20;      
         renderGameStarted({ duration: 20 });
-
-        // (optional later) notify server so other clients follow:
-        // socket.emit("start_game", { roomId, duration: 20 });
+        socket.emit("start_game", { roomId, duration: 20 });
       }
     }, "Start Game");
 
@@ -182,14 +179,22 @@ function renderQuestion({ question, options, roundId, roundNumber }) {
     el("h3", {}, question.text)
   );
 
+  // status line about *you*
+  const you = el("div", { class: "small mt-4" }, voted[myId] ? "You voted ✅" : "Pick an option");
+  renderQuestion._youVotedEl = you;          // ← store ref so vote_status can update it
+  qCard.appendChild(you);
+
   const btns = el("div", { class: "mt-12" });
   options.forEach(opt => {
     const b = el("button", {
       class: "btn mr-8",
       onclick: () => {
+        // client-side guard: prevent double-clicks
         Array.from(btns.querySelectorAll("button")).forEach(x => x.disabled = true);
+
         socket.emit("vote", { roomId, roundId, optionId: opt.id }, (ack) => {
           if (ack?.error) alert(ack.error);
+          // server will broadcast vote_status; when it arrives, the line above updates
         });
       }
     }, opt.text);
@@ -198,12 +203,13 @@ function renderQuestion({ question, options, roundId, roundNumber }) {
   qCard.appendChild(btns);
 
   const timer = el("div", { class: "small mt-8 mono" }, `Time: ${secondsRemaining || 0}s`);
-  activeTimerEl = timer; // important: let round_tick update this too
+  activeTimerEl = timer;
   qCard.appendChild(timer);
 
   app.appendChild(title);
   app.appendChild(qCard);
 }
+
 
 // 10) Results screen at the end of a round.
 function renderResults({ roundId, winningOptionId, counts }) {
@@ -250,10 +256,33 @@ socket.on("room_state", (s) => {
   }
 });
 
+socket.on("vote", ({ roomId, roundId, optionId }, ack) => {
+  const room = rooms.get(roomId);
+  if (!room) return ack?.({ error: "ROOM_NOT_FOUND" });
+  if (!room.players.has(socket.id)) return ack?.({ error: "NOT_IN_ROOM" });
+  if (!room.round || room.round.id !== roundId) return ack?.({ error: "INVALID_ROUND" });
+
+  // prevent double votes
+  room.roundVotes = room.roundVotes || new Map();
+  if (room.roundVotes.has(socket.id)) return ack?.({ error: "ALREADY_VOTED" });
+
+  // record vote
+  room.roundVotes.set(socket.id, optionId);
+
+  // broadcast who's voted (client uses this only on the question screen)
+  const voted = {};
+  for (const pid of room.roundVotes.keys()) voted[pid] = true;
+  io.to(roomId).emit("vote_status", { voted });
+
+  ack?.({ ok: true });
+});
+
 socket.on("vote_status", ({ voted: v }) => {
   voted = v || {};
-  // Only redraw lobby if that’s the current screen.
-  if (screen === "lobby") renderLobby();
+  if (screen === "question" && renderQuestion._youVotedEl) {
+    const meVoted = !!voted[myId];
+    renderQuestion._youVotedEl.textContent = meVoted ? "You voted ✅" : "Pick an option";
+  }
 });
 
 // NEW: Minimal path — when server says round started, show a simple game screen.
@@ -274,6 +303,7 @@ socket.on("round_question", (payload) => {
   isRoundActive = true;
   currentRound = { id: payload.roundId, number: payload.roundNumber };
   secondsRemaining = 0;
+  voted = {};
   renderQuestion(payload);
 });
 
