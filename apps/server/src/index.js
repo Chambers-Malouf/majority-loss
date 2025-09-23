@@ -41,7 +41,6 @@ async function addPlayer(gameId, displayName = "Player") {
 }
 
 
-
 const PORT = process.env.PORT || 8080;
 const CORS_ORIGIN = (process.env.CORS_ORIGIN || "*").split(",").map(s => s.trim());
 

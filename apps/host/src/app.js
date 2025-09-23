@@ -35,7 +35,10 @@ let myId = null;
 let myName = null;
 let players = [];
 let voted = {};
-let screen = "home"; // "home" | "lobby" | "question" | "results"
+let screen = "home"; // "home" | "lobby" | "started" | "question" | "results"
+
+// shared timer element reference (used by both "started" and "question" screens)
+let activeTimerEl = null;
 
 // 4) On any reconnect (Render can sleep, wifi hiccups, page refresh),
 //    automatically rejoin the last known room if we had one.
@@ -123,22 +126,13 @@ function renderLobby() {
       class: "btn mt-12",
       disabled: !canStart,
       onclick: () => {
-        const payload = { roomId, duration: 20, durationSeconds: 20 }; // send both keys for compatibility
-        let acked = false;
-
-        const failTimer = setTimeout(() => {
-          if (!acked) alert("Server didn’t start the round (no response). Check server logs.");
-        }, 4000);
-
+        // Emit to server (it already emits 'round_started'); our listener below
+        // will swap screens. This keeps behavior consistent across clients.
+        const payload = { roomId, duration: 20, durationSeconds: 20 };
         socket.emit("start_game", payload, (ack) => {
-          acked = true;
-          clearTimeout(failTimer);
-
           if (ack?.error === "NOT_IN_ROOM") {
             socket.emit("join_room", { roomId, name: myName }, () => {
-              socket.emit("start_game", payload, (ack2) => {
-                if (ack2?.error) alert(ack2.error);
-              });
+              socket.emit("start_game", payload);
             });
             return;
           }
@@ -155,7 +149,33 @@ function renderLobby() {
   if (startWrap) app.appendChild(startWrap);
 }
 
-// 9) Question screen for an active round.
+// 8.5) Game-started screen (very simple)
+function renderGameStarted({ duration, endAt } = {}) {
+  screen = "started";
+  app.innerHTML = "";
+
+  const card = el("div", { class: "card" },
+    el("h2", {}, "Game started 🎉"),
+    el("div", { class: "small mt-8" }, "The host has started the game. This is the in-game screen."),
+  );
+
+  // Optional countdown, if server sent it
+  const timer = el("div", { class: "small mt-8 mono" },
+    typeof secondsRemaining === "number" ? `Time: ${secondsRemaining || 0}s` : ""
+  );
+  activeTimerEl = timer; // shared reference so round_tick can update it
+  card.appendChild(timer);
+
+  // Back to lobby button (handy while prototyping)
+  const actions = el("div", { class: "mt-12" },
+    el("button", { class: "btn", onclick: renderLobby }, "Back to Lobby")
+  );
+
+  app.appendChild(card);
+  app.appendChild(actions);
+}
+
+// 9) Question screen for an active round (kept for when you wire questions)
 function renderQuestion({ question, options, roundId, roundNumber }) {
   screen = "question";
   app.innerHTML = "";
@@ -185,13 +205,11 @@ function renderQuestion({ question, options, roundId, roundNumber }) {
   qCard.appendChild(btns);
 
   const timer = el("div", { class: "small mt-8 mono" }, `Time: ${secondsRemaining || 0}s`);
+  activeTimerEl = timer; // important: let round_tick update this too
   qCard.appendChild(timer);
 
   app.appendChild(title);
   app.appendChild(qCard);
-
-  // Keep a reference so we can update countdown text later.
-  renderQuestion._timerEl = timer;
 }
 
 // 10) Results screen at the end of a round.
@@ -245,7 +263,19 @@ socket.on("vote_status", ({ voted: v }) => {
   if (screen === "lobby") renderLobby();
 });
 
-// Server sends the new round payload when a round starts.
+// NEW: Minimal path — when server says round started, show a simple game screen.
+socket.on("round_started", ({ duration, endAt }) => {
+  isRoundActive = true;
+  // compute initial secondsRemaining if endAt provided
+  if (endAt) {
+    secondsRemaining = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
+  } else if (typeof duration === "number") {
+    secondsRemaining = duration;
+  }
+  renderGameStarted({ duration, endAt });
+});
+
+// Server sends the new round payload when a round starts (future: full Q&A flow).
 socket.on("round_question", (payload) => {
   // payload: { roundId, roundNumber, question:{id,text}, options:[{id,text}] }
   isRoundActive = true;
@@ -257,8 +287,8 @@ socket.on("round_question", (payload) => {
 // Server ticks once per second with remaining time.
 socket.on("round_tick", ({ remaining }) => {
   secondsRemaining = remaining;
-  if (renderQuestion._timerEl) {
-    renderQuestion._timerEl.textContent = `Time: ${remaining}s`;
+  if (activeTimerEl) {
+    activeTimerEl.textContent = `Time: ${remaining}s`;
   }
 });
 
@@ -266,23 +296,17 @@ socket.on("round_tick", ({ remaining }) => {
 socket.on("round_results", ({ roundId, winningOptionId, counts }) => {
   isRoundActive = false;
   currentRound = null;
+  activeTimerEl = null;
   renderResults({ roundId, winningOptionId, counts });
 });
 
 // Optional: server tells us the whole game ended.
 socket.on("game_over", () => {
-  // Only trigger the popup if we really ran through 10 rounds.
-  if (currentRound && currentRound.number >= 10) {
-    isRoundActive = false;
-    currentRound = null;
-    alert("Game over!");
-    renderLobby();
-  } else {
-    // Otherwise just quietly return to lobby without popup.
-    isRoundActive = false;
-    currentRound = null;
-    renderLobby();
-  }
+  isRoundActive = false;
+  currentRound = null;
+  activeTimerEl = null;
+  // Quietly return to lobby for now (no popup until you want it)
+  renderLobby();
 });
 
 // 12) Boot the app on the home screen.
