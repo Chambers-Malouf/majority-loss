@@ -27,6 +27,8 @@ function el(tag, attrs = {}, ...children) {
 
 // local UI state
 const app = document.getElementById("app");
+let isHost = false;
+let currentRound = null;
 let isRoundActive = false;
 let secondsRemaining = 0;
 let roomId = null;
@@ -57,6 +59,7 @@ function renderHome() {
 // create room
 function onCreateRoom() {  
   if (!myName) myName = prompt("Enter your name")?.trim() || "Player";
+  isHost = true;
   socket.emit("host_create", (res) => {
     roomId = res.roomId;
     socket.emit("join_room", { roomId, name: myName }, (ack) => {
@@ -98,9 +101,83 @@ function renderLobby() {
     list.appendChild(el("div", {}, `${p.name}${me} - ${status}`));
   });
 
+  let startWrap = null;
+  if (isHost && !isRoundActive) {
+    startWrap = el("div", { class: "mt-12" },
+      el("button", { class: "btn", 
+        onclick: () => socket.emit("start_game", { roomId, duration: 20}) }, (ack) => {
+          if (ack?.error) return alert(ack.error);
+        }, players.length >= 3 ? "Start Game" : "Need at least 3 players"
+    ));
+  }
+  app.innerHTML = "";
   app.appendChild(header);
   app.appendChild(list);
+  if (startWrap) app.appendChild(startWrap);
 }
+function renderQuestion({ question, options, roundId, roundNumber }) {
+  app.innerHTML = "";
+
+  const title = el("div", { class: "card" },
+    el("h2", {}, `Round ${roundNumber}`),
+    el("div", { class: "small" }, isHost ? "You’re the host." : "")
+  );
+
+  const qCard = el("div", { class: "card mt-12" },
+    el("h3", {}, question.text)
+  );
+
+  const btns = el("div", { class: "mt-12" });
+  options.forEach(opt => {
+    const b = el("button", {
+      class: "btn mr-8",
+      onclick: () => {
+        // prevent double-vote in UI
+        Array.from(btns.querySelectorAll("button")).forEach(x => x.disabled = true);
+        socket.emit("vote", { roomId, roundId, optionId: opt.id }, (ack) => {
+          if (ack?.error) alert(ack.error);
+        });
+      }
+    }, opt.text);
+    btns.appendChild(b);
+  });
+  qCard.appendChild(btns);
+
+  const timer = el("div", { class: "small mt-8 mono" }, `Time: ${secondsRemaining || 0}s`);
+  qCard.appendChild(timer);
+
+  app.appendChild(title);
+  app.appendChild(qCard);
+
+  // keep a reference so we can update countdown text later
+  renderQuestion._timerEl = timer;
+}
+function renderResults({ roundId, winningOptionId, counts }) {
+  app.innerHTML = "";
+
+  const card = el("div", { class: "card" },
+    el("h2", {}, "Results"),
+    el("div", { class: "mt-8" },
+      ...counts.map(c => el("div", {}, `Option ${c.optionId}: ${c.count}`))
+    ),
+    el("div", { class: "mt-8" },
+      el("strong", {}, winningOptionId ? `Winner: ${winningOptionId}` : "Tie / No winner")
+    )
+  );
+
+  const actions = el("div", { class: "mt-12" });
+  if (isHost) {
+    actions.appendChild(el("button", {
+      class: "btn mr-8",
+      onclick: () => socket.emit("start_game", { roomId, duration: 20 })
+    }, "Next Round"));
+  }
+  actions.appendChild(el("button", { class: "btn", onclick: renderLobby }, "Back to Lobby"));
+
+  app.appendChild(card);
+  app.appendChild(actions);
+}
+
 
 // socket listeners
 socket.on("room_state", (s) => {
@@ -112,6 +189,37 @@ socket.on("room_state", (s) => {
 socket.on("vote_status", ({ voted: v }) => {
   voted = v || {};
   if (roomId) renderLobby();
+});
+// server broadcasts the chosen question/options at round start
+socket.on("round_question", (payload) => {
+  // payload: { roundId, roundNumber, question:{id,text}, options:[{id,text}] }
+  isRoundActive = true;
+  currentRound = { id: payload.roundId, number: payload.roundNumber };
+  secondsRemaining = 0;
+  renderQuestion(payload);
+});
+
+// server ticks once per second
+socket.on("round_tick", ({ remaining }) => {
+  secondsRemaining = remaining;
+  if (renderQuestion._timerEl) {
+    renderQuestion._timerEl.textContent = `Time: ${remaining}s`;
+  }
+});
+
+// server announces results when the timer ends
+socket.on("round_results", ({ roundId, winningOptionId, counts }) => {
+  isRoundActive = false;
+  currentRound = null;
+  renderResults({ roundId, winningOptionId, counts });
+});
+
+// optional: end-of-game signal
+socket.on("game_over", () => {
+  isRoundActive = false;
+  currentRound = null;
+  alert("Game over!");
+  renderLobby();
 });
 
 // start
