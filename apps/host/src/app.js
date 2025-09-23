@@ -8,7 +8,7 @@ const socket = io(SOCKET_URL, {
 });
 
 // === DEBUG/CONSOLE ACCESS ===
-window.socket = socket;                        // let DevTools see the socket
+window.socket = socket;                        // let DevTools see the socket watchers
 window.startTest = () => {                     // one-click test for start_game
   socket.emit("start_game", { roomId, duration: 10 }, (ack) =>
     console.log("test start ack:", ack)
