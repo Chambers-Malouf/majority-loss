@@ -345,5 +345,5 @@ socket.on("game_over", () => {
   renderLobby();
 });
 
-// 12) Boot the app on the home screen.
+// 12) Boot the app on the home screen. this works
 renderHome();
