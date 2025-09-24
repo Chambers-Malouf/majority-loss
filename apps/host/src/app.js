@@ -179,9 +179,8 @@ function renderQuestion({ question, options, roundId, roundNumber }) {
     el("h3", {}, question.text)
   );
 
-  // status line about *you*
   const you = el("div", { class: "small mt-4" }, voted[myId] ? "You voted ✅" : "Pick an option");
-  renderQuestion._youVotedEl = you;          // ← store ref so vote_status can update it
+  renderQuestion._youVotedEl = you;
   qCard.appendChild(you);
 
   const btns = el("div", { class: "mt-12" });
@@ -189,12 +188,9 @@ function renderQuestion({ question, options, roundId, roundNumber }) {
     const b = el("button", {
       class: "btn mr-8",
       onclick: () => {
-        // client-side guard: prevent double-clicks
         Array.from(btns.querySelectorAll("button")).forEach(x => x.disabled = true);
-
         socket.emit("vote", { roomId, roundId, optionId: opt.id }, (ack) => {
-          if (ack?.error) alert(ack.error);
-          // server will broadcast vote_status; when it arrives, the line above updates
+          if (ack?.error) alert(ack.error); // server will emit vote_status anyway
         });
       }
     }, opt.text);
@@ -209,6 +205,24 @@ function renderQuestion({ question, options, roundId, roundNumber }) {
   app.appendChild(title);
   app.appendChild(qCard);
 }
+
+// keep this to update "You voted ✅"
+socket.on("vote_status", ({ voted: v }) => {
+  voted = v || {};
+  if (screen === "question" && renderQuestion._youVotedEl) {
+    renderQuestion._youVotedEl.textContent = voted[myId] ? "You voted ✅" : "Pick an option";
+  }
+});
+
+// ensure we store the round meta exactly as sent
+socket.on("round_question", (payload) => {
+  isRoundActive = true;
+  currentRound = { id: payload.roundId, number: payload.roundNumber };
+  secondsRemaining = 0;
+  voted = {}; // (optional) clear local badge state each round
+  renderQuestion(payload);
+});
+
 
 
 // 10) Results screen at the end of a round.
@@ -299,13 +313,12 @@ socket.on("round_started", ({ duration, endAt }) => {
 
 // Server sends the new round payload when a round starts (future: full Q&A flow).
 socket.on("round_question", (payload) => {
-  // payload: { roundId, roundNumber, question:{id,text}, options:[{id,text}] }
   isRoundActive = true;
   currentRound = { id: payload.roundId, number: payload.roundNumber };
   secondsRemaining = 0;
-  voted = {};
-  renderQuestion(payload);
+  renderQuestion(payload); // already expects roundId + roundNumber
 });
+
 
 // Server ticks once per second with remaining time.
 socket.on("round_tick", ({ remaining }) => {

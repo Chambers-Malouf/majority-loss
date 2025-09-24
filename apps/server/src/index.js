@@ -109,8 +109,8 @@ async function startRound(roomId, durationSec = 20) {
 
   // create a simple round object (use DB ids for question/options)
   room.round = {
-    id: `${Date.now()}`,                 // simple unique round id (string)
-    number: room.roundNumber,
+    roomId: `${Date.now()}`,                 // simple unique round id (string)
+    roundNumber: room.roundNumber,
     question: { id: q.id, text: q.text },
     options: q.options,                  // [{id, text}, ...]
   };
@@ -119,8 +119,12 @@ async function startRound(roomId, durationSec = 20) {
   room.roundVotes = new Map();
 
   // tell everyone the round question
-  io.to(roomId).emit("round_question", room.round);
-
+  io.to(roomId).emit("round_question", {
+    roundId: room.round.roundId,
+    roundNumber: room.round.roundNumber,
+    question: room.round.question,
+    options: room.round.options,
+  });
   // set & broadcast timer
   const D = Math.max(1, Math.min(300, Number(durationSec) || 20));
   room.endAt = Date.now() + D * 1000;
@@ -221,6 +225,28 @@ socket.on("join_room", async ({ roomId, name }, ack) => {
   sendRoomState(roomId);
   ack?.({ ok: true, playerId: socket.id });
   console.log(`player ${socket.id} joined ${roomId} as "${p.display_name}" (pg:${p.id})`);
+});
+// ---- receive a vote for the current round
+socket.on("vote", ({ roomId, roundId, optionId }, ack) => {
+  const room = rooms.get(roomId);
+  if (!room) return ack?.({ error: "ROOM_NOT_FOUND" });
+  if (!room.players.has(socket.id)) return ack?.({ error: "NOT_IN_ROOM" });
+
+  if (!room.round || String(room.round.roundId) !== String(roundId)) {
+    return ack?.({ error: "ROUND_CLOSED" });
+  }
+
+  const exists = room.round.options.some(o => Number(o.id) === Number(optionId));
+  if (!exists) return ack?.({ error: "BAD_OPTION" });
+
+  room.roundVotes = room.roundVotes || new Map();
+  room.roundVotes.set(socket.id, Number(optionId)); // last vote wins (MVP)
+
+  const voted = {};
+  for (const pid of room.roundVotes.keys()) voted[pid] = true;
+  io.to(roomId).emit("vote_status", { voted });
+
+  ack?.({ ok: true });
 });
 
 
