@@ -219,7 +219,7 @@ socket.on("round_question", (payload) => {
   isRoundActive = true;
   currentRound = { id: payload.roundId, number: payload.roundNumber };
   secondsRemaining = 0;
-  voted = {}; // (optional) clear local badge state each round
+  voted = {}; 
   renderQuestion(payload);
 });
 
@@ -347,3 +347,4 @@ socket.on("game_over", () => {
 
 // 12) Boot the app on the home screen. this works
 renderHome();
+//random code for git add
