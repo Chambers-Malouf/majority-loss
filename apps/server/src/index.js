@@ -147,9 +147,12 @@ async function startRound(roomId, durationSec = 20) {
       const counts = Array.from(countsMap.entries())
         .map(([optionId, count]) => ({ optionId, count }));
 
-      const max = Math.max(0, ...counts.map(c => c.count));
-      const winners = counts.filter(c => c.count === max && max > 0).map(c => c.optionId);
-      const winningOptionId = winners.length === 1 ? winners[0] : null; // null = tie/no votes
+      // ✅ Majority Loss logic — find the *least* chosen option with > 0 votes
+      const nonzero = counts.filter(c => c.count > 0);
+      const min = Math.min(...nonzero.map(c => c.count));
+      const losers = nonzero.filter(c => c.count === min);
+      const winningOptionId = losers.length === 1 ? losers[0].optionId : null; // null = tie/no winner
+
 
       // build detailed vote breakdown: { playerName, optionId }
       const votes = [];
@@ -168,17 +171,19 @@ async function startRound(roomId, durationSec = 20) {
       io.to(roomId).emit("round_results", {
         roundId: room.round.id,
         winningOptionId,
-        counts: counts.map(c => ({
-          ...c,
-          text: room.round.options.find(o => o.id === c.optionId)?.text || ""
-        })),
+        counts: counts
+          .map(c => {
+            const opt = room.round.options.find(o => o.id === c.optionId);
+            return opt ? { ...c, text: opt.text } : null;
+          })
+          .filter(Boolean),
         votes
       });
-
 
       // keep state clean for next round
       room.round = null;
       room.roundVotes = new Map();
+
 
       // (later) you can auto-start the next round or wait for host click
     }
