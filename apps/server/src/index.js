@@ -129,7 +129,7 @@ async function startRound(roomId, durationSec = 20) {
   const D = Math.max(1, Math.min(300, Number(durationSec) || 20));
   room.endAt = Date.now() + D * 1000;
 
-  room.timer = setInterval(() => {
+  room.timer = setInterval(async() => {
     const remaining = Math.max(0, Math.ceil((room.endAt - Date.now()) / 1000));
     io.to(roomId).emit("round_tick", { remaining });
 
@@ -195,12 +195,31 @@ async function startRound(roomId, durationSec = 20) {
       console.log("Votes array:", votes);
       console.log("Winning OptionId:", winningOptionId);
 
+      for (const [socketId, optionId] of room.roundVotes.entries()) {
+        if (optionId === winningOptionId) {
+          const player = room.players.get(socketId);
+          if (player) {
+            player.points += 1;
+
+            // 🧠 Save back to DB
+            await pool.query(
+              `UPDATE player_game SET points = $1 WHERE id = $2`,
+              [player.points, player.playerGameId]
+            );
+          }
+        }
+      }
+
       // emit
       io.to(roomId).emit("round_results", {
         roundId: room.round.id,
         winningOptionId,
         counts,
-        votes
+        votes,
+        leaderboard: Array.from(room.players.values()).map(p => ({
+          name: p.name,
+          points: p.points
+        }))
       });
 
 

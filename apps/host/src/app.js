@@ -229,6 +229,24 @@ function renderResults({ roundId, winningOptionId, counts, votes }) {
       )
     )
   );
+  if (leaderboard && leaderboard.length) {
+  const leaderboardList = el("ul", {},
+    ...leaderboard
+      .sort((a, b) => b.points - a.points)
+      .map(p =>
+        el("li", {}, `${p.name}: ${p.points} point${p.points === 1 ? "" : "s"}`)
+      )
+  );
+
+  const leaderboardBox = el(
+    "div",
+    { class: "mt-8" },
+    el("h3", {}, "Scoreboard"),
+    leaderboardList
+  );
+
+  card.appendChild(leaderboardBox);  // append into the results card
+}
 
   const actions = el("div", { class: "mt-12" });
   if (isHost) {
@@ -249,12 +267,13 @@ function renderResults({ roundId, winningOptionId, counts, votes }) {
 }
 
 // ✅ UPDATED: Now passes `votes` to renderResults
-socket.on("round_results", ({ roundId, winningOptionId, counts, votes }) => {
+socket.on("round_results", ({ roundId, winningOptionId, counts, votes, leaderboard }) => {
   isRoundActive = false;
   currentRound = null;
   activeTimerEl = null;
-  renderResults({ roundId, winningOptionId, counts, votes });
+  renderResults({ roundId, winningOptionId, counts, votes, leaderboard });
 });
+
 
 socket.on("room_state", (s) => {
   if (s.roomId) roomId = s.roomId;
