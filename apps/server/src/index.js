@@ -258,7 +258,7 @@ socket.on("join_room", async ({ roomId, name }, ack) => {
   // write to DB
   const p = await addPlayer(room.gameId, (name || "Player").trim());
 
-  // track in-memory
+  // track in-memory yea
   room.players.set(socket.id, {
     id: socket.id,
     name: p.display_name,
