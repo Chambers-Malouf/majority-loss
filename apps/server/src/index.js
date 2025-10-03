@@ -145,7 +145,12 @@ async function startRound(roomId, durationSec = 20) {
         countsMap.set(optId, (countsMap.get(optId) || 0) + 1);
       }
       const counts = Array.from(countsMap.entries())
-        .map(([optionId, count]) => ({ optionId, count }));
+      .map(([optionId, count]) => {
+        const opt = room.round.options.find(o => o.id === optionId);
+        return opt ? { optionId, count, text: opt.text } : null;
+      })
+      .filter(Boolean); // remove nulls
+
 
       // ✅ Majority Loss logic — find the *least* chosen option with > 0 votes
       const nonzero = counts.filter(c => c.count > 0);
