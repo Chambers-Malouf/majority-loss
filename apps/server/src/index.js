@@ -151,12 +151,30 @@ async function startRound(roomId, durationSec = 20) {
       const winners = counts.filter(c => c.count === max && max > 0).map(c => c.optionId);
       const winningOptionId = winners.length === 1 ? winners[0] : null; // null = tie/no votes
 
-      // send results for this round
+      // build detailed vote breakdown: { playerName, optionId }
+      const votes = [];
+      for (const [socketId, optionId] of room.roundVotes.entries()) {
+        const player = room.players.get(socketId);
+        if (player) {
+          votes.push({
+            playerId: socketId,
+            playerName: player.name,
+            optionId
+          });
+        }
+      }
+
+      // send results with vote breakdown
       io.to(roomId).emit("round_results", {
         roundId: room.round.id,
         winningOptionId,
-        counts,
+        counts: counts.map(c => ({
+          ...c,
+          text: room.round.options.find(o => o.id === c.optionId)?.text || ""
+        })),
+        votes
       });
+
 
       // keep state clean for next round
       room.round = null;
