@@ -138,22 +138,43 @@ async function startRound(roomId, durationSec = 20) {
       room.timer = null;
       room.endAt = null;
 
-      // tally votes
+      // tally votes with safe logic
       const countsMap = new Map();
-      for (const opt of room.round.options) countsMap.set(opt.id, 0);
+      // initialize counts for each option
+      for (const opt of room.round.options) {
+        countsMap.set(opt.id, 0);
+      }
+      // add votes
       for (const optId of room.roundVotes.values()) {
+        // ensure optId is same type as keys (maybe cast to number or string)
         countsMap.set(optId, (countsMap.get(optId) || 0) + 1);
       }
-      const counts = Array.from(countsMap.entries())
-        .map(([optionId, count]) => ({ optionId, count }));
 
-      // ✅ Majority Loss logic — find the *least* chosen option with > 0 votes
+      // build final counts, exactly one per option
+      const counts = [];
+      for (const [optionId, count] of countsMap.entries()) {
+        const opt = room.round.options.find(o => o.id === optionId);
+        if (opt) {
+          counts.push({
+            optionId,
+            count,
+            text: opt.text
+          });
+        }
+      }
+
+      // use Minority logic (least chosen wins)
       const nonzero = counts.filter(c => c.count > 0);
-      const min = Math.min(...nonzero.map(c => c.count));
-      const losers = nonzero.filter(c => c.count === min);
-      const winningOptionId = losers.length === 1 ? losers[0].optionId : null;
+      let winningOptionId = null;
+      if (nonzero.length > 0) {
+        const min = Math.min(...nonzero.map(c => c.count));
+        const losers = nonzero.filter(c => c.count === min);
+        if (losers.length === 1) {
+          winningOptionId = losers[0].optionId;
+        }
+      }
 
-      // build detailed vote breakdown
+      // build votes list
       const votes = [];
       for (const [socketId, optionId] of room.roundVotes.entries()) {
         const player = room.players.get(socketId);
@@ -166,34 +187,27 @@ async function startRound(roomId, durationSec = 20) {
         }
       }
 
-      // 🔍 DEBUG LOGS — ADD HERE
+      // debug log
       console.log(">> ROUND RESULTS DEBUG <<");
       console.log("Options:", room.round.options);
       console.log("Votes map:", Array.from(room.roundVotes.entries()));
-      console.log("Counts array:", counts);
+      console.log("Final counts:", counts);
       console.log("Votes array:", votes);
       console.log("Winning OptionId:", winningOptionId);
 
-      // send results with vote breakdown
+      // emit
       io.to(roomId).emit("round_results", {
         roundId: room.round.id,
         winningOptionId,
-        counts: counts
-          .map(c => {
-            const opt = room.round.options.find(o => o.id === c.optionId);
-            return opt ? { ...c, text: opt.text } : null;
-          })
-          .filter(Boolean),
+        counts,
         votes
       });
+
 
       // keep state clean for next round
       room.round = null;
       room.roundVotes = new Map();
     }
-
-
-
       // (later) you can auto-start the next round or wait for host click
         }, 1000);
       }
