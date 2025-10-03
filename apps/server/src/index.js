@@ -145,21 +145,15 @@ async function startRound(roomId, durationSec = 20) {
         countsMap.set(optId, (countsMap.get(optId) || 0) + 1);
       }
       const counts = Array.from(countsMap.entries())
-      .map(([optionId, count]) => {
-        const opt = room.round.options.find(o => o.id === optionId);
-        return opt ? { optionId, count, text: opt.text } : null;
-      })
-      .filter(Boolean); // remove nulls
-
+        .map(([optionId, count]) => ({ optionId, count }));
 
       // ✅ Majority Loss logic — find the *least* chosen option with > 0 votes
       const nonzero = counts.filter(c => c.count > 0);
       const min = Math.min(...nonzero.map(c => c.count));
       const losers = nonzero.filter(c => c.count === min);
-      const winningOptionId = losers.length === 1 ? losers[0].optionId : null; // null = tie/no winner
+      const winningOptionId = losers.length === 1 ? losers[0].optionId : null;
 
-
-      // build detailed vote breakdown: { playerName, optionId }
+      // build detailed vote breakdown
       const votes = [];
       for (const [socketId, optionId] of room.roundVotes.entries()) {
         const player = room.players.get(socketId);
@@ -171,6 +165,14 @@ async function startRound(roomId, durationSec = 20) {
           });
         }
       }
+
+      // 🔍 DEBUG LOGS — ADD HERE
+      console.log(">> ROUND RESULTS DEBUG <<");
+      console.log("Options:", room.round.options);
+      console.log("Votes map:", Array.from(room.roundVotes.entries()));
+      console.log("Counts array:", counts);
+      console.log("Votes array:", votes);
+      console.log("Winning OptionId:", winningOptionId);
 
       // send results with vote breakdown
       io.to(roomId).emit("round_results", {
@@ -188,12 +190,13 @@ async function startRound(roomId, durationSec = 20) {
       // keep state clean for next round
       room.round = null;
       room.roundVotes = new Map();
+    }
+
 
 
       // (later) you can auto-start the next round or wait for host click
-    }
-  }, 1000);
-}
+        }, 1000);
+      }
 
 
 // ---- socket handlers
