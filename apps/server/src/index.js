@@ -142,7 +142,7 @@ async function startRound(roomId, durationSec = 20) {
       const countsMap = new Map();
       // initialize counts for each option
       for (const opt of room.round.options) {
-        countsMap.set(opt.id, 0);
+        countsMap.set(Number(opt.id), 0);
       }
       // add votes
       for (const optId of room.roundVotes.values()) {
@@ -156,7 +156,7 @@ async function startRound(roomId, durationSec = 20) {
         const opt = room.round.options.find(o => o.id === optionId);
         if (opt) {
           counts.push({
-            optionId,
+            optionId: Number(optionId),
             count,
             text: opt.text
           });
