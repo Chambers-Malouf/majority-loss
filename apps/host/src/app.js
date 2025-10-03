@@ -206,7 +206,7 @@ socket.on("round_question", (payload) => {
   renderQuestion(payload);
 });
 
-// ✅ UPDATED: Now includes `votes` param
+// ✅ UPDATED: Now includes `votes` paramater
 function renderResults({ roundId, winningOptionId, counts, votes, leaderboard }) {
   console.log("leaderboard received:", leaderboard)
   screen = "results";
