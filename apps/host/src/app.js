@@ -207,7 +207,8 @@ socket.on("round_question", (payload) => {
 });
 
 // ✅ UPDATED: Now includes `votes` param
-function renderResults({ roundId, winningOptionId, counts, votes }) {
+function renderResults({ roundId, winningOptionId, counts, votes, leaderboard }) {
+  console.log("leaderboard received:", leaderboard)
   screen = "results";
   app.innerHTML = "";
 
