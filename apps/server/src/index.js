@@ -140,15 +140,15 @@ async function startRound(roomId, durationSec = 20) {
 
       // tally votes with safe logic
       const countsMap = new Map();
-      // initialize counts for each option
+      // normalize everything to strings
       for (const opt of room.round.options) {
-        countsMap.set(Number(opt.id), 0);
+        countsMap.set(String(opt.id), 0);
       }
-      // add votes
       for (const optId of room.roundVotes.values()) {
-        // ensure optId is same type as keys (maybe cast to number or string)
-        countsMap.set(optId, (countsMap.get(optId) || 0) + 1);
+        const key = String(optId);
+        countsMap.set(key, (countsMap.get(key) || 0) + 1);
       }
+
 
       // build final counts, exactly one per option
       const counts = [];
