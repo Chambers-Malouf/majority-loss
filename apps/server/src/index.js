@@ -80,7 +80,7 @@ app.get("/api/solo/question", async (_req, res) => {
   }
 });
 
-// DeepSeek AI thinking + hidden choice
+// DeepSeek AI thinking 
 app.post("/api/ai-round", express.json(), async (req, res) => {
   const { question, options, aiName, aiPersonality } = req.body || {};
   if (!question?.text || !Array.isArray(options)) {
