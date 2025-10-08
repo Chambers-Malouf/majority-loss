@@ -53,6 +53,9 @@ function renderHome() {
   const codeInput = el("input", { placeholder: "Room code (e.g., ABC123)", maxlength: "6", class: "mt-8" });
   const createBtn = el("button", { class: "btn mt-12", onclick: onCreateRoom }, "Create Room");
   const joinBtn = el("button", { class: "btn mt-12 ml-8", onclick: () => onJoinRoom(codeInput.value, nameInput.value) }, "Join Room");
+  const soloBtn = el("button", { class: "btn mt-12", onclick: () => window.location.href = "./solo.html" }, "Solo Mode (vs 4 AI)");
+
+  app.appendChild(soloBtn);
 
   app.appendChild(
     el("div", { class: "card" },

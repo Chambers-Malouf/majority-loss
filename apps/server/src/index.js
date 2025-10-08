@@ -67,6 +67,79 @@ app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
 app.get("/healthz", (_req, res) => res.json({ ok: true, build: "debug-4" }));
 app.get("/", (_, res) => res.status(200).send("OK")); // simple health check
 
+// === Solo Mode Endpoints (Non-intrusive) ===
+
+// Fetch one random question + its options from DB
+app.get("/api/solo/question", async (_req, res) => {
+  try {
+    const q = await getRandomQuestionWithOptions();
+    res.json({ ok: true, question: { id: q.id, text: q.text }, options: q.options });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// DeepSeek AI thinking + hidden choice
+app.post("/api/ai-round", express.json(), async (req, res) => {
+  const { question, options, aiName, aiPersonality } = req.body || {};
+  if (!question?.text || !Array.isArray(options)) {
+    return res.status(400).json({ error: "BAD_INPUT" });
+  }
+
+  try {
+    const r = await fetch("https://api.deepseek.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "deepseek-chat",
+        messages: [
+          {
+            role: "system",
+            content: `
+You are ${aiName}, a ${aiPersonality} contestant in a psychological game called Majority Loss.
+You will see a question and several options. Respond in TWO parts ONLY:
+1) A single natural sentence of your thinking (do NOT reveal your vote).
+2) On a new line, write your final hidden choice in [brackets] exactly matching one option's TEXT.
+Example:
+"I think most will go with A, but I’ll risk it.
+[Option B]"`.trim(),
+          },
+          {
+            role: "user",
+            content: `${question.text}\nOptions: ${options.map(o => o.text).join(", ")}`
+          },
+        ],
+        temperature: 0.9,
+      }),
+    });
+
+    const data = await r.json();
+    const msg = data?.choices?.[0]?.message?.content || "";
+    const match = msg.match(/\[([^\]]+)\]/);
+    const choiceText = match ? match[1].trim() : null;
+    const thinking = msg.split(/\[[^\]]+\]/)[0].trim();
+
+    const choice = options.find(o =>
+      o.text.toLowerCase().trim() === (choiceText || "").toLowerCase().trim()
+    );
+
+    res.json({
+      aiName,
+      thinking,
+      choiceText,
+      choiceId: choice?.id || null,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "AI_FAILED" });
+  }
+});
+
+
 // ---- HTTP + Socket.IO
 const server = http.createServer(app);
 const io = new Server(server, {
