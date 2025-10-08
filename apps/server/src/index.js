@@ -1,3 +1,4 @@
+//apps/server/src/index.js
 import express from "express";
 import http from "http";
 import { Server } from "socket.io";
@@ -5,6 +6,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import pg from "pg";
 
+const MAX_ROUNDS = 10;
 dotenv.config();
 
 const { Pool } = pg;
@@ -103,6 +105,23 @@ async function startRound(roomId, durationSec = 20) {
 
   // round bookkeeping
   room.roundNumber = (room.roundNumber || 0) + 1;
+  if (room.roundNumber > MAX_ROUNDS) {
+  console.log(`🏁 Room ${roomId} reached ${MAX_ROUNDS} rounds, ending game.`);
+
+  // build final leaderboard
+  const leaderboard = Array.from(room.players.values())
+    .sort((a, b) => b.points - a.points)
+    .map(p => ({ name: p.name, points: p.points }));
+
+  io.to(roomId).emit("game_over", { leaderboard });
+
+  // clear timers & cleanup
+  if (room.timer) clearInterval(room.timer);
+  room.round = null;
+  room.roundVotes = new Map();
+  room.roundNumber = 0; // reset for next session
+  return; // stop here, don’t start another round
+}
 
   // pick 1 question from DB
   const q = await getRandomQuestionWithOptions();

@@ -206,7 +206,6 @@ socket.on("round_question", (payload) => {
   renderQuestion(payload);
 });
 
-// ✅ UPDATED: Now includes `votes` paramater
 function renderResults({ roundId, winningOptionId, counts, votes, leaderboard }) {
   console.log("leaderboard received:", leaderboard)
   screen = "results";
@@ -266,8 +265,51 @@ function renderResults({ roundId, winningOptionId, counts, votes, leaderboard })
   app.appendChild(card);
   app.appendChild(actions);
 }
+function renderGameOver(finalLeaderboard) {
+  screen = "game_over";
+  app.innerHTML = "";
 
-// ✅ UPDATED: Now passes `votes` to renderResults
+  const card = el("div", { class: "card" },
+    el("h2", {}, "🏁 Game Over!"),
+    el("p", { class: "mt-8" }, "Here are the final results:")
+  );
+
+  if (finalLeaderboard && finalLeaderboard.length) {
+    const list = el("ul", {},
+      ...finalLeaderboard
+        .sort((a, b) => b.points - a.points)
+        .map(p =>
+          el("li", {}, `${p.name}: ${p.points} point${p.points === 1 ? "" : "s"}`)
+        )
+    );
+
+    const box = el("div", { class: "mt-8" },
+      el("h3", {}, "Final Leaderboard"),
+      list
+    );
+
+    card.appendChild(box);
+  }
+
+  const actions = el("div", { class: "mt-12" },
+    el("button", { class: "btn mr-8", onclick: renderLobby }, "Back to Lobby"),
+    el("button", {
+      class: "btn",
+      onclick: () => {
+        if (isHost) {
+          const payload = { roomId, duration: 20 };
+          socket.emit("start_game", payload);
+        } else {
+          renderLobby();
+        }
+      }
+    }, "Play Again")
+  );
+
+  app.appendChild(card);
+  app.appendChild(actions);
+}
+
 socket.on("round_results", ({ roundId, winningOptionId, counts, votes, leaderboard }) => {
   isRoundActive = false;
   currentRound = null;
@@ -301,12 +343,13 @@ socket.on("round_tick", ({ remaining }) => {
   }
 });
 
-socket.on("game_over", () => {
+socket.on("game_over", ({ leaderboard }) => {
   isRoundActive = false;
   currentRound = null;
   activeTimerEl = null;
-  renderLobby();
+  renderGameOver(leaderboard);
 });
+
 
 // 12) Boot the app on the home screen
 renderHome();
