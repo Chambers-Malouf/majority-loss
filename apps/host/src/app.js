@@ -353,3 +353,4 @@ socket.on("game_over", ({ leaderboard }) => {
 
 // 12) Boot the app on the home screen
 renderHome();
+// working gameloop
