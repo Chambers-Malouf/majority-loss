@@ -23,7 +23,7 @@ const AIs = [
   { name: "Erebus", personality: "mischievous and unpredictable" },
   { name: "Selene", personality: "empathetic and thoughtful" },
 ];
-
+const BACKEND_URL = "https://minority-mayhem.onrender.com"; 
 let playerChoice = null;
 let aiData = [];
 let seconds = 10;
@@ -51,8 +51,8 @@ async function startRound() {
   root.innerHTML = "";
   roundNum++;
   if (roundNum > maxRounds) return renderEnd();
-
-  const qRes = await fetch("/api/solo/question");
+  const RENDER_BASE_URL = "https://minority-mayhem.onrender.com"; 
+  const qRes = await fetch(`${RENDER_BASE_URL}/api/solo/question`);
   const qData = await qRes.json();
   if (!qData.ok) return root.append("Error loading question.");
   const { question, options } = qData;
@@ -104,7 +104,8 @@ async function startRound() {
   // Trigger AIs
   aiData = [];
   for (const ai of AIs) {
-    fetch("/api/ai-round", {
+    const RENDER_BASE_URL = "https://minority-mayhem.onrender.com"; 
+    fetch(`${RENDER_BASE_URL}/api/ai-round`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question, options, aiName: ai.name, aiPersonality: ai.personality }),
