@@ -57,20 +57,15 @@ async function getRandomQuestionWithOptions() {
   };
 }
 
-
+const app = express();
 const PORT = process.env.PORT || 8080;
 const CORS_ORIGIN = (process.env.CORS_ORIGIN || "*")
   .split(",")
   .map(s => s.trim());
 
 app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
-
-
-// ---- Express setup
-const app = express();
-app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
 app.get("/healthz", (_req, res) => res.json({ ok: true, build: "debug-4" }));
-app.get("/", (_, res) => res.status(200).send("OK")); // simple health check
+app.get("/", (_, res) => res.status(200).send("OK")); 
 
 // === Solo Mode Endpoints (Non-intrusive) ===
 
