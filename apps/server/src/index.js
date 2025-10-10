@@ -59,7 +59,12 @@ async function getRandomQuestionWithOptions() {
 
 
 const PORT = process.env.PORT || 8080;
-const CORS_ORIGIN = (process.env.CORS_ORIGIN || "*").split(",").map(s => s.trim());
+const CORS_ORIGIN = (process.env.CORS_ORIGIN || "*")
+  .split(",")
+  .map(s => s.trim());
+
+app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
+
 
 // ---- Express setup
 const app = express();
