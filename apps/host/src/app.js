@@ -33,6 +33,8 @@ let myName = null;
 let players = [];
 let voted = {};
 let screen = "home";
+let pendingAIThoughts = [];
+
 
 let activeTimerEl = null;
 
@@ -244,6 +246,7 @@ function renderQuestion({ question, options, roundId, roundNumber }) {
   );
   renderQuestion._youVotedEl = you;
   qCard.appendChild(you);
+
   const aiLog = el("div", { class: "mt-8", id: "ai-log" });
   renderQuestion._aiLogEl = aiLog;
   qCard.appendChild(aiLog);
@@ -271,8 +274,17 @@ function renderQuestion({ question, options, roundId, roundNumber }) {
 
   app.appendChild(title);
   app.appendChild(qCard);
-}
 
+  // ✅ NEW: Flush any queued AI messages that arrived early
+  if (window.pendingAIThoughts?.length && renderQuestion._aiLogEl) {
+    for (const { aiName, thinking } of window.pendingAIThoughts) {
+      renderQuestion._aiLogEl.appendChild(
+        el("div", { class: "small ai-thinking" }, `${aiName}: ${thinking}`)
+      );
+    }
+    window.pendingAIThoughts = [];
+  }
+}
 
 function renderResults({ roundId, winningOptionId, counts, votes, leaderboard }) {
   console.log("leaderboard received:", leaderboard)
@@ -432,8 +444,11 @@ socket.on("ai_thinking", ({ aiName, thinking }) => {
     renderQuestion._aiLogEl.appendChild(
       el("div", { class: "small ai-thinking" }, `${aiName}: ${thinking}`)
     );
+  } else {
+    pendingAIThoughts.push({ aiName, thinking });
   }
 });
+
 
 socket.on("game_over", ({ leaderboard }) => {
   isRoundActive = false;
