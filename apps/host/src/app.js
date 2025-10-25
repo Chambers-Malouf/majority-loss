@@ -67,6 +67,7 @@ const soloBtn = el("button", { class: "btn mt-12", onclick: startSoloMode }, "So
     )
   );
 }
+
 function startSoloMode() {
   console.log("🎮 Starting Solo Mode...");
   isHost = true;
@@ -100,8 +101,16 @@ function spawnAIs(roomId) {
 
     aiSocket.on("round_question", async ({ question, options, roundId }) => {
       const delay = 2000 + Math.random() * 3000;
+
       setTimeout(async () => {
         const aiVote = await getAiVote(ai.name, ai.personality, question, options);
+
+        if (aiVote?.thinking) {
+          const msg = el("div", { class: "small mt-4 ai-thinking" },
+            `${ai.name}: ${aiVote.thinking}`
+          );
+          document.querySelector(".card.mt-12")?.appendChild(msg);
+        }
         if (aiVote?.id) {
           aiSocket.emit("vote", { roomId, roundId, optionId: aiVote.id });
           console.log(`${ai.name} voted for option ${aiVote.text}`);
@@ -121,12 +130,13 @@ async function getAiVote(aiName, aiPersonality, question, options) {
     const data = await res.json();
 
     const match = options.find(
-      (o) => o.text.toLowerCase().trim() === (data.choiceText || "").toLowerCase().trim()
-    );
-    return match || options[Math.floor(Math.random() * options.length)];
+      o => o.text.toLowerCase().trim() === (data.choiceText || "").toLowerCase().trim()
+    ) || options[Math.floor(Math.random() * options.length)];
+    return { id: match.id, text: match.text, thinking: data.thinking || null };
   } catch (err) {
     console.error("AI vote failed:", err);
-    return options[Math.floor(Math.random() * options.length)];
+    const fallback = options[Math.floor(Math.random() * options.length)];
+    return { id: fallback.id, text: fallback.text, thinking: null };
   }
 }
 
@@ -229,9 +239,14 @@ function renderQuestion({ question, options, roundId, roundNumber }) {
     el("h3", {}, question.text)
   );
 
-  const you = el("div", { class: "small mt-4" }, voted[myId] ? "You voted ✅" : "Pick an option");
+  const you = el("div", { class: "small mt-4" },
+    voted[myId] ? "You voted ✅" : "Pick an option"
+  );
   renderQuestion._youVotedEl = you;
   qCard.appendChild(you);
+  const aiLog = el("div", { class: "mt-8", id: "ai-log" });
+  renderQuestion._aiLogEl = aiLog;
+  qCard.appendChild(aiLog);
 
   const btns = el("div", { class: "mt-12" });
   options.forEach(opt => {
@@ -248,7 +263,9 @@ function renderQuestion({ question, options, roundId, roundNumber }) {
   });
   qCard.appendChild(btns);
 
-  const timer = el("div", { class: "small mt-8 mono" }, `Time: ${secondsRemaining || 0}s`);
+  const timer = el("div", { class: "small mt-8 mono" },
+    `Time: ${secondsRemaining || 0}s`
+  );
   activeTimerEl = timer;
   qCard.appendChild(timer);
 
@@ -256,20 +273,6 @@ function renderQuestion({ question, options, roundId, roundNumber }) {
   app.appendChild(qCard);
 }
 
-socket.on("vote_status", ({ voted: v }) => {
-  voted = v || {};
-  if (screen === "question" && renderQuestion._youVotedEl) {
-    renderQuestion._youVotedEl.textContent = voted[myId] ? "You voted ✅" : "Pick an option";
-  }
-});
-
-socket.on("round_question", (payload) => {
-  isRoundActive = true;
-  currentRound = { id: payload.roundId, number: payload.roundNumber };
-  secondsRemaining = 0;
-  voted = {};
-  renderQuestion(payload);
-});
 
 function renderResults({ roundId, winningOptionId, counts, votes, leaderboard }) {
   console.log("leaderboard received:", leaderboard)
@@ -330,6 +333,7 @@ function renderResults({ roundId, winningOptionId, counts, votes, leaderboard })
   app.appendChild(card);
   app.appendChild(actions);
 }
+
 function renderGameOver(finalLeaderboard) {
   screen = "game_over";
   app.innerHTML = "";
@@ -375,6 +379,21 @@ function renderGameOver(finalLeaderboard) {
   app.appendChild(actions);
 }
 
+socket.on("vote_status", ({ voted: v }) => {
+  voted = v || {};
+  if (screen === "question" && renderQuestion._youVotedEl) {
+    renderQuestion._youVotedEl.textContent = voted[myId] ? "You voted ✅" : "Pick an option";
+  }
+});
+
+socket.on("round_question", (payload) => {
+  isRoundActive = true;
+  currentRound = { id: payload.roundId, number: payload.roundNumber };
+  secondsRemaining = 0;
+  voted = {};
+  renderQuestion(payload);
+});
+
 socket.on("round_results", ({ roundId, winningOptionId, counts, votes, leaderboard }) => {
   isRoundActive = false;
   currentRound = null;
@@ -415,7 +434,4 @@ socket.on("game_over", ({ leaderboard }) => {
   renderGameOver(leaderboard);
 });
 
-
-// 12) Boot the app on the home screen
 renderHome();
-// working gameloop
