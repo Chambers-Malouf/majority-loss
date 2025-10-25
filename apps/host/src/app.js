@@ -120,12 +120,12 @@ function spawnAIs(roomId) {
   });
 }
 
-async function getAiVote(aiName, aiPersonality, question, options) {
+async function getAiVote(aiName, aiPersonality, question, options, roomId) {
   try {
     const res = await fetch(`${SOCKET_URL.replace("wss://", "https://")}/api/ai-round`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ aiName, aiPersonality, question, options }),
+      body: JSON.stringify({ aiName, aiPersonality, question, options, roomId}),
     });
     const data = await res.json();
 
@@ -424,6 +424,14 @@ socket.on("round_tick", ({ remaining }) => {
   secondsRemaining = remaining;
   if (activeTimerEl) {
     activeTimerEl.textContent = `Time: ${remaining}s`;
+  }
+});
+
+socket.on("ai_thinking", ({ aiName, thinking }) => {
+  if (screen === "question" && renderQuestion._aiLogEl) {
+    renderQuestion._aiLogEl.appendChild(
+      el("div", { class: "small ai-thinking" }, `${aiName}: ${thinking}`)
+    );
   }
 });
 

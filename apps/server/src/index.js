@@ -80,7 +80,7 @@ app.get("/api/solo/question", async (_req, res) => {
 });
 
 app.post("/api/ai-round", express.json(), async (req, res) => {
-  const { question, options, aiName, aiPersonality } = req.body || {};
+  const { question, options, aiName, aiPersonality, roomId } = req.body || {};
   if (!question?.text || !Array.isArray(options)) {
     return res.status(400).json({ error: "BAD_INPUT" });
   }
@@ -99,8 +99,8 @@ app.post("/api/ai-round", express.json(), async (req, res) => {
             role: "system",
             content: `
 You are ${aiName}, a ${aiPersonality} contestant in a psychological game called Majority Loss.
-You will see a question and several options, the objective is to be in the minority of votes (if too many vote the same as you, you lose). 
-Respond in TWO parts ONLY:. Respond in TWO parts ONLY:
+You will see a question and several options. The objective is to be in the minority of votes (if too many vote the same as you, you lose). 
+Respond in TWO parts ONLY:
 1) A single natural sentence of your thinking (do NOT reveal your vote).
 2) On a new line, write your final hidden choice in [brackets] exactly matching one option's TEXT.
 Example:
@@ -115,7 +115,6 @@ Example:
         temperature: 0.9,
       }),
     });
-
     const data = await r.json();
     const msg = data?.choices?.[0]?.message?.content || "";
     const match = msg.match(/\[([^\]]+)\]/);
@@ -125,7 +124,12 @@ Example:
     const choice = options.find(o =>
       o.text.toLowerCase().trim() === (choiceText || "").toLowerCase().trim()
     );
-
+    if (roomId && io) {
+      io.to(roomId).emit("ai_thinking", {
+        aiName,
+        thinking,
+      });
+    }
     res.json({
       aiName,
       thinking,
@@ -133,10 +137,11 @@ Example:
       choiceId: choice?.id || null,
     });
   } catch (e) {
-    console.error(e);
+    console.error("AI round failed:", e);
     res.status(500).json({ error: "AI_FAILED" });
   }
 });
+
 
 
 // ---- HTTP + Socket.IO
