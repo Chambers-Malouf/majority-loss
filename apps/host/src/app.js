@@ -440,6 +440,7 @@ socket.on("round_tick", ({ remaining }) => {
 });
 
 socket.on("ai_thinking", ({ aiName, thinking }) => {
+  console.log(`🧠 Received AI thought: ${aiName}: "${thinking}"`);
   if (screen === "question" && renderQuestion._aiLogEl) {
     renderQuestion._aiLogEl.appendChild(
       el("div", { class: "small ai-thinking" }, `${aiName}: ${thinking}`)

@@ -85,6 +85,10 @@ app.post("/api/ai-round", express.json(), async (req, res) => {
     return res.status(400).json({ error: "BAD_INPUT" });
   }
 
+  console.log(`🧠 [AI ROUND START] ${aiName} in room ${roomId || "N/A"}`);
+  console.log("Prompt Question:", question.text);
+  console.log("Options:", options.map(o => o.text).join(", "));
+
   try {
     const r = await fetch("https://api.deepseek.com/v1/chat/completions", {
       method: "POST",
@@ -99,10 +103,10 @@ app.post("/api/ai-round", express.json(), async (req, res) => {
             role: "system",
             content: `
 You are ${aiName}, a ${aiPersonality} contestant in a psychological game called Majority Loss.
-You will see a question and several options. The objective is to be in the minority of votes (if too many vote the same as you, you lose). 
+You will see a question and several options. The objective is to be in the minority of votes.
 Respond in TWO parts ONLY:
-1) A single natural sentence of your thinking (do NOT reveal your vote).
-2) On a new line, write your final hidden choice in [brackets] exactly matching one option's TEXT.
+1) One natural sentence of your thinking (do NOT reveal your vote).
+2) On a new line, your final hidden choice in [brackets] matching one option's TEXT.
 Example:
 "I think most will go with A, but I’ll risk it.
 [Option B]"`.trim(),
@@ -115,21 +119,28 @@ Example:
         temperature: 0.9,
       }),
     });
+
     const data = await r.json();
     const msg = data?.choices?.[0]?.message?.content || "";
+    console.log(`💬 [AI RAW REPLY] ${aiName}:`, msg);
+
     const match = msg.match(/\[([^\]]+)\]/);
     const choiceText = match ? match[1].trim() : null;
     const thinking = msg.split(/\[[^\]]+\]/)[0].trim();
 
+    console.log(`🧩 [AI PARSED] ${aiName} thinks "${thinking}" and picks "${choiceText}"`);
+
     const choice = options.find(o =>
       o.text.toLowerCase().trim() === (choiceText || "").toLowerCase().trim()
     );
+
     if (roomId && io) {
-      io.to(roomId).emit("ai_thinking", {
-        aiName,
-        thinking,
-      });
+      console.log(`📡 Emitting ai_thinking for ${aiName} to room ${roomId}`);
+      io.to(roomId).emit("ai_thinking", { aiName, thinking });
+    } else {
+      console.log(`⚠️ No roomId provided — skipping ai_thinking emit for ${aiName}`);
     }
+
     res.json({
       aiName,
       thinking,
@@ -137,12 +148,10 @@ Example:
       choiceId: choice?.id || null,
     });
   } catch (e) {
-    console.error("AI round failed:", e);
+    console.error("❌ AI round failed:", e);
     res.status(500).json({ error: "AI_FAILED" });
   }
 });
-
-
 
 // ---- HTTP + Socket.IO
 const server = http.createServer(app);
