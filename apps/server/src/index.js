@@ -67,7 +67,6 @@ app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
 app.get("/healthz", (_req, res) => res.json({ ok: true, build: "debug-4" }));
 app.get("/", (_, res) => res.status(200).send("OK")); 
 
-// === Solo Mode Endpoints (Non-intrusive) ===
 
 // Fetch one random question + its options from DB
 app.get("/api/solo/question", async (_req, res) => {
@@ -80,7 +79,6 @@ app.get("/api/solo/question", async (_req, res) => {
   }
 });
 
-// DeepSeek AI thinking 
 app.post("/api/ai-round", express.json(), async (req, res) => {
   const { question, options, aiName, aiPersonality } = req.body || {};
   if (!question?.text || !Array.isArray(options)) {
@@ -101,7 +99,8 @@ app.post("/api/ai-round", express.json(), async (req, res) => {
             role: "system",
             content: `
 You are ${aiName}, a ${aiPersonality} contestant in a psychological game called Majority Loss.
-You will see a question and several options. Respond in TWO parts ONLY:
+You will see a question and several options, the objective is to be in the minority of votes (if too many vote the same as you, you lose). 
+Respond in TWO parts ONLY:. Respond in TWO parts ONLY:
 1) A single natural sentence of your thinking (do NOT reveal your vote).
 2) On a new line, write your final hidden choice in [brackets] exactly matching one option's TEXT.
 Example:
@@ -199,20 +198,20 @@ async function startRound(roomId, durationSec = 20) {
   // pick 1 question from DB
   const q = await getRandomQuestionWithOptions();
 
-  // create a simple round object (use DB ids for question/options)
   room.round = {
-    roomId: `${Date.now()}`,                 // simple unique round id (string)
+    id: Date.now().toString(),              
     roundNumber: room.roundNumber,
     question: { id: q.id, text: q.text },
-    options: q.options,                  // [{id, text}, ...]
+    options: q.options,                    
   };
+
 
   // reset votes for this round
   room.roundVotes = new Map();
 
   // tell everyone the round question
   io.to(roomId).emit("round_question", {
-    roundId: room.round.roundId,
+    roundId: room.round.id,
     roundNumber: room.round.roundNumber,
     question: room.round.question,
     options: room.round.options,
@@ -385,10 +384,10 @@ socket.on("join_room", async ({ roomId, name }, ack) => {
 // ---- receive a vote for the current round
 socket.on("vote", ({ roomId, roundId, optionId }, ack) => {
   const room = rooms.get(roomId);
-  if (!room) return ack?.({ error: "ROOM_NOT_FOUND" });
+  if (!room) return ack?.({ error: "ROOM_NOT_FOUNDf" });
   if (!room.players.has(socket.id)) return ack?.({ error: "NOT_IN_ROOM" });
 
-  if (!room.round || String(room.round.roundId) !== String(roundId)) {
+  if (!room.round || String(room.round.id) !== String(roundId)) {
     return ack?.({ error: "ROUND_CLOSED" });
   }
 

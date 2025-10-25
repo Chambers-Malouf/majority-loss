@@ -53,7 +53,7 @@ function renderHome() {
   const codeInput = el("input", { placeholder: "Room code (e.g., ABC123)", maxlength: "6", class: "mt-8" });
   const createBtn = el("button", { class: "btn mt-12", onclick: onCreateRoom }, "Create Room");
   const joinBtn = el("button", { class: "btn mt-12 ml-8", onclick: () => onJoinRoom(codeInput.value, nameInput.value) }, "Join Room");
-  const soloBtn = el("button", { class: "btn mt-12", onclick: () => window.location.href = "./solo.html" }, "Solo Mode (vs 4 AI)");
+const soloBtn = el("button", { class: "btn mt-12", onclick: startSoloMode }, "Solo Mode (vs 4 AI)");
 
   app.appendChild(soloBtn);
 
@@ -66,6 +66,68 @@ function renderHome() {
       el("div", { class: "small mt-12" }, "Tip: One person creates a room. Everyone else joins with the code.")
     )
   );
+}
+function startSoloMode() {
+  console.log("🎮 Starting Solo Mode...");
+  isHost = true;
+  myName = "You";
+  screen = "solo";
+
+  socket.emit("host_create", (res) => {
+    roomId = res.roomId;
+    console.log(`🧠 Solo room created: ${roomId}`);
+
+    socket.emit("join_room", { roomId, name: myName }, (ack) => {
+      if (ack?.error) return alert(ack.error);
+      myId = ack.playerId;
+      spawnAIs(roomId);
+      renderLobby();
+    });
+  });
+}
+
+function spawnAIs(roomId) {
+  const aiList = [
+    { name: "Charon", personality: "logical strategist" },
+    { name: "Nyx", personality: "chaotic trickster" },
+    { name: "Erebus", personality: "deceptive manipulator" },
+    { name: "Thanatos", personality: "predictive mimic" },
+  ];
+
+  aiList.forEach((ai) => {
+    const aiSocket = io(SOCKET_URL, { transports: ["websocket"] });
+    aiSocket.emit("join_room", { roomId, name: ai.name });
+
+    aiSocket.on("round_question", async ({ question, options, roundId }) => {
+      const delay = 2000 + Math.random() * 3000;
+      setTimeout(async () => {
+        const aiVote = await getAiVote(ai.name, ai.personality, question, options);
+        if (aiVote?.id) {
+          aiSocket.emit("vote", { roomId, roundId, optionId: aiVote.id });
+          console.log(`${ai.name} voted for option ${aiVote.text}`);
+        }
+      }, delay);
+    });
+  });
+}
+
+async function getAiVote(aiName, aiPersonality, question, options) {
+  try {
+    const res = await fetch(`${SOCKET_URL.replace("wss://", "https://")}/api/ai-round`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ aiName, aiPersonality, question, options }),
+    });
+    const data = await res.json();
+
+    const match = options.find(
+      (o) => o.text.toLowerCase().trim() === (data.choiceText || "").toLowerCase().trim()
+    );
+    return match || options[Math.floor(Math.random() * options.length)];
+  } catch (err) {
+    console.error("AI vote failed:", err);
+    return options[Math.floor(Math.random() * options.length)];
+  }
 }
 
 function onCreateRoom() {
