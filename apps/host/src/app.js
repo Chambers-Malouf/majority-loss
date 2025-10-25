@@ -105,7 +105,7 @@ function spawnAIs(roomId) {
       const delay = 2000 + Math.random() * 3000;
 
       setTimeout(async () => {
-        const aiVote = await getAiVote(ai.name, ai.personality, question, options);
+        const aiVote = await getAiVote(ai.name, ai.personality, question, options, roomId);
 
         if (aiVote?.thinking) {
           const msg = el("div", { class: "small mt-4 ai-thinking" },
