@@ -126,6 +126,7 @@ CHOICE: [assembly]
     });
 
     const data = await r.json();
+    console.log("🧾 FULL DEEPSEEK RESPONSE:", JSON.stringify(data, null, 2));
     const msg = data?.choices?.[0]?.message?.content || "";
     console.log(`💬 [AI RAW REPLY] ${aiName}:`, msg);
 
