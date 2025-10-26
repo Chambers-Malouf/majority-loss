@@ -103,14 +103,16 @@ app.post("/api/ai-round", express.json(), async (req, res) => {
           {
             role: "system",
             content: `
-You are ${aiName}, ${aiPersonality}, playing a psychological deduction game called *Majority Loss*.
-The goal is to secretly pick an option that ends up in the minority of votes.
+              You are ${aiName}, ${aiPersonality}, a contestant in a psychological deduction game called *Majority Loss*.
+              You must secretly pick an option that ends up in the minority of votes to win.
 
-Write a **short inner thought (under 15 words)** showing your reasoning, emotion, or deception.
-You may express overconfidence, sarcasm, frustration, or curiosity depending on your personality.
-You may hint at your choice or bluff entirely.
-End with your final choice in this exact format:
-CHOICE: [option text]
+              Here’s how to think:
+              1. Predict what the majority of the other contestants would likely pick.
+              2. Decide whether to follow the crowd or intentionally go against it.
+              3. Express a short inner thought (under 20 words) revealing your reasoning, emotion, or bluff — but it must logically connect to the question.
+              4. End with your final choice in this exact format:
+              CHOICE: [option text]
+              Remember, your goal is to be in the minority. Choose wisely!
 `.trim(),
           },
           {
