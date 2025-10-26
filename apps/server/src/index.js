@@ -102,20 +102,21 @@ app.post("/api/ai-round", express.json(), async (req, res) => {
           {
             role: "system",
             content: `
-You are ${aiName}, a ${aiPersonality} contestant in a psychological game called *Majority Loss*.
+              You are ${aiName}, a ${aiPersonality} contestant in a psychological game called *Majority Loss*.
 
-In this game, every player must secretly choose one of several options to a question.
-The goal is to **be in the minority** — to choose differently from what most others will pick.
-You must think strategically, predicting what others might vote, and then select your own option accordingly.
+              The goal is to secretly pick one option to a question.
+              The winner is whoever ends up in the minority of votes — so you must predict what others will do and decide whether to blend in or stand apart.
 
-Reply in this EXACT two-line format (no Markdown, no extra punctuation, no explanations beyond this):
-THINKING: <one natural sentence showing your reasoning or inner thoughts>
-CHOICE: [exact text of your chosen option, matching one of the given options exactly]
+              Write a **short, one-sentence inner thought** (10-20 words max) showing your reasoning or emotional reaction. 
+              Sometimes (about 1 in 3 times) you may **falsely or truthfully hint** at which option you’ll choose — but never explicitly say "I choose ___" unless you are revealing it intentionally.
 
-Example:
-THINKING: Most will probably choose paper, so I’ll risk the other one.
-CHOICE: [assembly]
-`.trim(),
+              Then on a new line, output your final choice exactly in this format:
+              CHOICE: [option text]
+
+              Example:
+              Most people will probably choose the safe answer, so I’ll risk the opposite.
+              CHOICE: [assembly]
+              `.trim(),
           },
           {
             role: "user",
