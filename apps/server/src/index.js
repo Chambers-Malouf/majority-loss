@@ -89,6 +89,7 @@ app.post("/api/ai-round", express.json(), async (req, res) => {
   console.log("Options:", options.map(o => o.text).join(", "));
 
   try {
+    // --- Call DeepSeek Chat API ---
     const r = await fetch("https://api.deepseek.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -102,49 +103,48 @@ app.post("/api/ai-round", express.json(), async (req, res) => {
           {
             role: "system",
             content: `
-              You are ${aiName}, a ${aiPersonality} contestant in a psychological game called *Majority Loss*.
+You are ${aiName}, ${aiPersonality}, playing a psychological deduction game called Majority Loss.
+The goal is to secretly pick an option that ends up in the minority of votes.
 
-              The goal is to secretly pick one option to a question.
-              The winner is whoever ends up in the minority of votes — so you must predict what others will do and decide whether to blend in or stand apart.
+Write a **short inner thought (under 15 words)** showing your reasoning, emotion, or a misleading statement.
+Sometimes (randomly) you may bluff or mislead about your choice.
+Then on a new line, output your final decision exactly in this format:
+CHOICE: [option text]
 
-              Write a **short, one-sentence inner thought** (10-20 words max) showing your reasoning or emotional reaction. 
-              Sometimes (about 1 in 3 times) you may **falsely or truthfully hint** at which option you’ll choose — but never explicitly say "I choose ___" unless you are revealing it intentionally.
-
-              Then on a new line, output your final choice exactly in this format:
-              CHOICE: [option text]
-
-              Example:
-              Most people will probably choose the safe answer, so I’ll risk the opposite.
-              CHOICE: [assembly]
-              `.trim(),
+Example:
+People always pick safety over novelty — I’ll go against them.
+CHOICE: [Dr. Pepper]
+`.trim(),
           },
           {
             role: "user",
-            content: `${question.text}\nOptions: ${options.map(o => o.text).join(", ")}`
+            content: `${question.text}\nOptions: ${options.map(o => o.text).join(", ")}`,
           },
         ],
       }),
     });
 
+    // --- Parse DeepSeek response ---
     const data = await r.json();
     console.log("🧾 FULL DEEPSEEK RESPONSE:", JSON.stringify(data, null, 2));
+
     const msg = data?.choices?.[0]?.message?.content || "";
     console.log(`💬 [AI RAW REPLY] ${aiName}:`, msg);
 
-    // --- Improved regex parsing ---
-    const thinkMatch = msg.match(/THINKING[:\-]?\s*(.*)/i);
-    const choiceMatch = msg.match(/CHOICE[:\-]?\s*\[([^\]]+)\]/i);
-
-    const thinking = thinkMatch ? thinkMatch[1].trim() : "";
+    // --- Robust parsing: works with CHOICE: [text] or CHOICE: text ---
+    const split = msg.split(/CHOICE:/i);
+    const thinking = split[0]?.trim() || "";
+    const choiceMatch = split[1]?.match(/\[?([^\]\n]+)\]?/);
     const choiceText = choiceMatch ? choiceMatch[1].trim() : null;
 
     console.log(`🧩 [AI PARSED] ${aiName} thinks "${thinking}" and picks "${choiceText}"`);
 
-    const choice = options.find(o =>
-      o.text.toLowerCase().trim() === (choiceText || "").toLowerCase().trim()
+    // --- Match choice with one of the actual options ---
+    const choice = options.find(
+      (o) => o.text.toLowerCase().trim() === (choiceText || "").toLowerCase().trim()
     );
 
-    // --- Emit to all clients in the room ---
+    // --- Emit thought to frontend ---
     const thinkingFinal = thinking || "is thinking deeply...";
     if (roomId && io) {
       console.log(`📡 Emitting ai_thinking for ${aiName} to room ${roomId}`);
@@ -153,6 +153,7 @@ app.post("/api/ai-round", express.json(), async (req, res) => {
       console.log(`⚠️ No roomId provided — skipping ai_thinking emit for ${aiName}`);
     }
 
+    // --- Send response back to caller ---
     res.json({
       aiName,
       thinking: thinkingFinal,
