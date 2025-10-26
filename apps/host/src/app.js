@@ -2,6 +2,7 @@
 // ================ IMPORTS & SOCKET ==================
 // ===================================================
 import { io } from "socket.io-client";
+import { initScene } from "./scene.js";
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
 
 const socket = io(SOCKET_URL, {
@@ -91,22 +92,26 @@ function renderHome() {
 // ===================================================
 // ===================== SOLO MODE ===================
 // ===================================================
+
 function startSoloMode() {
-  isHost = true;
-  myName = "You";
+  console.log("🎮 Entering Solo Mode (Fake 3D)");
+
+  // Clear any existing socket listeners / UI
   screen = "solo";
+  app.innerHTML = ""; // clear 2D HTML
+  isHost = false;
+  myName = "You";
+  myId = "local-player";
+  roomId = "SOLO-" + Math.floor(Math.random() * 99999);
 
-  socket.emit("host_create", (res) => {
-    roomId = res.roomId;
+  // Launch fake 3D world
+  initScene();
 
-    socket.emit("join_room", { roomId, name: myName }, (ack) => {
-      if (ack?.error) return alert(ack.error);
-      myId = ack.playerId;
-      spawnAIs(roomId);
-      renderLobby();
-    });
-  });
+  // (optional later)
+  // startSoloRound(); // this could pull AI logic / API
 }
+
+
 
 function spawnAIs(roomId) {
   const aiList = [

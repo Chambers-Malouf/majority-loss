@@ -10,6 +10,9 @@ let scene, camera, renderer, light;
 // ===================================================
 export function initScene() {
   // Prevent multiple canvases from stacking
+  document.body.style.background = "black";
+  document.getElementById("app").style.display = "none";
+
   if (document.querySelector("canvas#solo-bg")) return;
 
   // --- Create Scene ---
