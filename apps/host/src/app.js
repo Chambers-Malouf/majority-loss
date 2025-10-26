@@ -107,12 +107,6 @@ function spawnAIs(roomId) {
       setTimeout(async () => {
         const aiVote = await getAiVote(ai.name, ai.personality, question, options, roomId);
 
-        if (aiVote?.thinking) {
-          const msg = el("div", { class: "small mt-4 ai-thinking" },
-            `${ai.name}: ${aiVote.thinking}`
-          );
-          document.querySelector(".card.mt-12")?.appendChild(msg);
-        }
         if (aiVote?.id) {
           aiSocket.emit("vote", { roomId, roundId, optionId: aiVote.id });
           console.log(`${ai.name} voted for option ${aiVote.text}`);
