@@ -1,5 +1,6 @@
-// apps/host/src/app.js
-
+// ===================================================
+// ================ IMPORTS & SOCKET ==================
+// ===================================================
 import { io } from "socket.io-client";
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
 
@@ -7,6 +8,9 @@ const socket = io(SOCKET_URL, {
   transports: ["websocket"],
 });
 
+// ===================================================
+// ==================== UTILITIES ====================
+// ===================================================
 function el(tag, attrs = {}, ...children) {
   const e = document.createElement(tag);
   for (const k in attrs) {
@@ -22,6 +26,9 @@ function el(tag, attrs = {}, ...children) {
   return e;
 }
 
+// ===================================================
+// =================== GLOBAL STATE ==================
+// ===================================================
 const app = document.getElementById("app");
 let isHost = false;
 let currentRound = null;
@@ -34,10 +41,11 @@ let players = [];
 let voted = {};
 let screen = "home";
 let pendingAIThoughts = [];
-
-
 let activeTimerEl = null;
 
+// ===================================================
+// ================= SOCKET REJOIN ===================
+// ===================================================
 socket.on("connect", () => {
   if (roomId && myName) {
     socket.emit("join_room", { roomId, name: myName }, (ack) => {
@@ -48,17 +56,27 @@ socket.on("connect", () => {
   }
 });
 
+// ===================================================
+// ===================== HOME UI =====================
+// ===================================================
 function renderHome() {
   screen = "home";
   app.innerHTML = "";
+
   const nameInput = el("input", { placeholder: "Your name", maxlength: "16" });
-  const codeInput = el("input", { placeholder: "Room code (e.g., ABC123)", maxlength: "6", class: "mt-8" });
+  const codeInput = el("input", {
+    placeholder: "Room code (e.g., ABC123)",
+    maxlength: "6",
+    class: "mt-8"
+  });
   const createBtn = el("button", { class: "btn mt-12", onclick: onCreateRoom }, "Create Room");
-  const joinBtn = el("button", { class: "btn mt-12 ml-8", onclick: () => onJoinRoom(codeInput.value, nameInput.value) }, "Join Room");
-const soloBtn = el("button", { class: "btn mt-12", onclick: startSoloMode }, "Solo Mode (vs 4 AI)");
+  const joinBtn = el("button", {
+    class: "btn mt-12 ml-8",
+    onclick: () => onJoinRoom(codeInput.value, nameInput.value)
+  }, "Join Room");
+  const soloBtn = el("button", { class: "btn mt-12", onclick: startSoloMode }, "Solo Mode (vs 4 AI)");
 
   app.appendChild(soloBtn);
-
   app.appendChild(
     el("div", { class: "card" },
       el("h1", {}, "Majority Loss"),
@@ -70,15 +88,16 @@ const soloBtn = el("button", { class: "btn mt-12", onclick: startSoloMode }, "So
   );
 }
 
+// ===================================================
+// ===================== SOLO MODE ===================
+// ===================================================
 function startSoloMode() {
-  console.log("🎮 Starting Solo Mode...");
   isHost = true;
   myName = "You";
   screen = "solo";
 
   socket.emit("host_create", (res) => {
     roomId = res.roomId;
-    console.log(`🧠 Solo room created: ${roomId}`);
 
     socket.emit("join_room", { roomId, name: myName }, (ack) => {
       if (ack?.error) return alert(ack.error);
@@ -109,7 +128,6 @@ function spawnAIs(roomId) {
 
         if (aiVote?.id) {
           aiSocket.emit("vote", { roomId, roundId, optionId: aiVote.id });
-          console.log(`${ai.name} voted for option ${aiVote.text}`);
         }
       }, delay);
     });
@@ -121,7 +139,7 @@ async function getAiVote(aiName, aiPersonality, question, options, roomId) {
     const res = await fetch(`${SOCKET_URL.replace("wss://", "https://")}/api/ai-round`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ aiName, aiPersonality, question, options, roomId}),
+      body: JSON.stringify({ aiName, aiPersonality, question, options, roomId }),
     });
     const data = await res.json();
 
@@ -136,6 +154,13 @@ async function getAiVote(aiName, aiPersonality, question, options, roomId) {
   }
 }
 
+// ===================================================
+// ================= MULTIPLAYER MODE ================
+// ===================================================
+
+// ===================================================
+// ===================== ROOMS =======================
+// ===================================================
 function onCreateRoom() {
   if (!myName) myName = prompt("Enter your name")?.trim() || "Player";
   isHost = true;
@@ -160,6 +185,9 @@ function onJoinRoom(code, name) {
   });
 }
 
+// ===================================================
+// ===================== LOBBY =======================
+// ===================================================
 function renderLobby() {
   screen = "lobby";
   app.innerHTML = "";
@@ -190,7 +218,6 @@ function renderLobby() {
         socket.emit("start_game", { roomId, duration: 20 });
       }
     }, "Start Game");
-
     startWrap = el("div", {}, startBtn);
   }
 
@@ -222,6 +249,9 @@ function renderGameStarted({ duration, endAt } = {}) {
   app.appendChild(actions);
 }
 
+// ===================================================
+// ===================== GAME ========================
+// ===================================================
 function renderQuestion({ question, options, roundId, roundNumber }) {
   screen = "question";
   app.innerHTML = "";
@@ -269,7 +299,6 @@ function renderQuestion({ question, options, roundId, roundNumber }) {
   app.appendChild(title);
   app.appendChild(qCard);
 
-  // ✅ NEW: Flush any queued AI messages that arrived early
   if (window.pendingAIThoughts?.length && renderQuestion._aiLogEl) {
     for (const { aiName, thinking } of window.pendingAIThoughts) {
       renderQuestion._aiLogEl.appendChild(
@@ -281,46 +310,37 @@ function renderQuestion({ question, options, roundId, roundNumber }) {
 }
 
 function renderResults({ roundId, winningOptionId, counts, votes, leaderboard }) {
-  console.log("leaderboard received:", leaderboard)
   screen = "results";
   app.innerHTML = "";
 
   const card = el("div", { class: "card" },
     el("h2", {}, "Results"),
     el("div", { class: "mt-8" },
-      ...counts.map(c => el("div", {}, `${c.text}: ${c.count}`))  // ✅ text instead of optionId
+      ...counts.map(c => el("div", {}, `${c.text}: ${c.count}`))
     ),
     el("div", { class: "mt-8" },
       el("strong", {},
         winningOptionId
-          ? `Winner(s): ${
-              votes
-                .filter(v => v.optionId === winningOptionId)
-                .map(v => v.playerName)
-                .join(", ")
-            }`
+          ? `Winner(s): ${votes.filter(v => v.optionId === winningOptionId).map(v => v.playerName).join(", ")}`
           : "Tie / No winner"
       )
     )
   );
+
   if (leaderboard && leaderboard.length) {
-  const leaderboardList = el("ul", {},
-    ...leaderboard
-      .sort((a, b) => b.points - a.points)
-      .map(p =>
-        el("li", {}, `${p.name}: ${p.points} point${p.points === 1 ? "" : "s"}`)
-      )
-  );
+    const leaderboardList = el("ul", {},
+      ...leaderboard
+        .sort((a, b) => b.points - a.points)
+        .map(p => el("li", {}, `${p.name}: ${p.points} point${p.points === 1 ? "" : "s"}`))
+    );
 
-  const leaderboardBox = el(
-    "div",
-    { class: "mt-8" },
-    el("h3", {}, "Scoreboard"),
-    leaderboardList
-  );
+    const leaderboardBox = el("div", { class: "mt-8" },
+      el("h3", {}, "Scoreboard"),
+      leaderboardList
+    );
 
-  card.appendChild(leaderboardBox);  // append into the results card
-}
+    card.appendChild(leaderboardBox);
+  }
 
   const actions = el("div", { class: "mt-12" });
   if (isHost) {
@@ -353,9 +373,7 @@ function renderGameOver(finalLeaderboard) {
     const list = el("ul", {},
       ...finalLeaderboard
         .sort((a, b) => b.points - a.points)
-        .map(p =>
-          el("li", {}, `${p.name}: ${p.points} point${p.points === 1 ? "" : "s"}`)
-        )
+        .map(p => el("li", {}, `${p.name}: ${p.points} point${p.points === 1 ? "" : "s"}`))
     );
 
     const box = el("div", { class: "mt-8" },
@@ -385,29 +403,9 @@ function renderGameOver(finalLeaderboard) {
   app.appendChild(actions);
 }
 
-socket.on("vote_status", ({ voted: v }) => {
-  voted = v || {};
-  if (screen === "question" && renderQuestion._youVotedEl) {
-    renderQuestion._youVotedEl.textContent = voted[myId] ? "You voted ✅" : "Pick an option";
-  }
-});
-
-socket.on("round_question", (payload) => {
-  isRoundActive = true;
-  currentRound = { id: payload.roundId, number: payload.roundNumber };
-  secondsRemaining = 0;
-  voted = {};
-  renderQuestion(payload);
-});
-
-socket.on("round_results", ({ roundId, winningOptionId, counts, votes, leaderboard }) => {
-  isRoundActive = false;
-  currentRound = null;
-  activeTimerEl = null;
-  renderResults({ roundId, winningOptionId, counts, votes, leaderboard });
-});
-
-
+// ===================================================
+// ================= SOCKET EVENTS ===================
+// ===================================================
 socket.on("room_state", (s) => {
   if (s.roomId) roomId = s.roomId;
   players = s.players || [];
@@ -426,15 +424,34 @@ socket.on("round_started", ({ duration, endAt }) => {
   renderGameStarted({ duration, endAt });
 });
 
-socket.on("round_tick", ({ remaining }) => {
-  secondsRemaining = remaining;
-  if (activeTimerEl) {
-    activeTimerEl.textContent = `Time: ${remaining}s`;
+socket.on("round_question", (payload) => {
+  isRoundActive = true;
+  currentRound = { id: payload.roundId, number: payload.roundNumber };
+  secondsRemaining = 0;
+  voted = {};
+  renderQuestion(payload);
+});
+
+socket.on("vote_status", ({ voted: v }) => {
+  voted = v || {};
+  if (screen === "question" && renderQuestion._youVotedEl) {
+    renderQuestion._youVotedEl.textContent = voted[myId] ? "You voted ✅" : "Pick an option";
   }
 });
 
+socket.on("round_results", ({ roundId, winningOptionId, counts, votes, leaderboard }) => {
+  isRoundActive = false;
+  currentRound = null;
+  activeTimerEl = null;
+  renderResults({ roundId, winningOptionId, counts, votes, leaderboard });
+});
+
+socket.on("round_tick", ({ remaining }) => {
+  secondsRemaining = remaining;
+  if (activeTimerEl) activeTimerEl.textContent = `Time: ${remaining}s`;
+});
+
 socket.on("ai_thinking", ({ aiName, thinking }) => {
-  console.log(`🧠 Received AI thought: ${aiName}: "${thinking}"`);
   if (screen === "question" && renderQuestion._aiLogEl) {
     renderQuestion._aiLogEl.appendChild(
       el("div", { class: "small ai-thinking" }, `${aiName}: ${thinking}`)
@@ -444,7 +461,6 @@ socket.on("ai_thinking", ({ aiName, thinking }) => {
   }
 });
 
-
 socket.on("game_over", ({ leaderboard }) => {
   isRoundActive = false;
   currentRound = null;
@@ -452,4 +468,7 @@ socket.on("game_over", ({ leaderboard }) => {
   renderGameOver(leaderboard);
 });
 
+// ===================================================
+// ==================== INIT APP =====================
+// ===================================================
 renderHome();

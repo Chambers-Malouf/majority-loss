@@ -27,3 +27,18 @@ input, select { padding: 10px; border-radius: 10px; border: 1px solid #323657; b
 .mt-8 { margin-top: 8px; }
 .mt-12 { margin-top: 12px; }
 .ml-8 { margin-left: 8px; }
+
+/* solo mode */
+canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+}
+
+#app {
+  position: relative;
+  z-index: 10;
+}
