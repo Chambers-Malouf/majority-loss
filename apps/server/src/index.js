@@ -67,7 +67,6 @@ app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
 app.get("/healthz", (_req, res) => res.json({ ok: true, build: "debug-4" }));
 app.get("/", (_, res) => res.status(200).send("OK")); 
 
-
 // Fetch one random question + its options from DB
 app.get("/api/solo/question", async (_req, res) => {
   try {
@@ -98,25 +97,31 @@ app.post("/api/ai-round", express.json(), async (req, res) => {
       },
       body: JSON.stringify({
         model: "deepseek-chat",
+        temperature: 0.9,
         messages: [
           {
             role: "system",
             content: `
-You are ${aiName}, a ${aiPersonality} contestant in a psychological game called Majority Loss.
-You will see a question and several options. The objective is to be in the minority of votes.
-Respond in TWO parts ONLY:
-1) One natural sentence of your thinking (do NOT reveal your vote).
-2) On a new line, your final hidden choice in [brackets] matching one option's TEXT.
+You are ${aiName}, a ${aiPersonality} contestant in a psychological game called *Majority Loss*.
+
+In this game, every player must secretly choose one of several options to a question.
+The goal is to **be in the minority** — to choose differently from what most others will pick.
+You must think strategically, predicting what others might vote, and then select your own option accordingly.
+
+Reply in this EXACT two-line format (no Markdown, no extra punctuation, no explanations beyond this):
+THINKING: <one natural sentence showing your reasoning or inner thoughts>
+CHOICE: [exact text of your chosen option, matching one of the given options exactly]
+
 Example:
-"I think most will go with A, but I’ll risk it.
-[Option B]"`.trim(),
+THINKING: Most will probably choose paper, so I’ll risk the other one.
+CHOICE: [assembly]
+`.trim(),
           },
           {
             role: "user",
             content: `${question.text}\nOptions: ${options.map(o => o.text).join(", ")}`
           },
         ],
-        temperature: 0.9,
       }),
     });
 
@@ -124,9 +129,12 @@ Example:
     const msg = data?.choices?.[0]?.message?.content || "";
     console.log(`💬 [AI RAW REPLY] ${aiName}:`, msg);
 
-    const match = msg.match(/\[([^\]]+)\]/);
-    const choiceText = match ? match[1].trim() : null;
-    const thinking = msg.split(/\[[^\]]+\]/)[0].trim();
+    // --- Improved regex parsing ---
+    const thinkMatch = msg.match(/THINKING[:\-]?\s*(.*)/i);
+    const choiceMatch = msg.match(/CHOICE[:\-]?\s*\[([^\]]+)\]/i);
+
+    const thinking = thinkMatch ? thinkMatch[1].trim() : "";
+    const choiceText = choiceMatch ? choiceMatch[1].trim() : null;
 
     console.log(`🧩 [AI PARSED] ${aiName} thinks "${thinking}" and picks "${choiceText}"`);
 
@@ -134,16 +142,18 @@ Example:
       o.text.toLowerCase().trim() === (choiceText || "").toLowerCase().trim()
     );
 
+    // --- Emit to all clients in the room ---
+    const thinkingFinal = thinking || "is thinking deeply...";
     if (roomId && io) {
       console.log(`📡 Emitting ai_thinking for ${aiName} to room ${roomId}`);
-      io.to(roomId).emit("ai_thinking", { aiName, thinking });
+      io.to(roomId).emit("ai_thinking", { aiName, thinking: thinkingFinal });
     } else {
       console.log(`⚠️ No roomId provided — skipping ai_thinking emit for ${aiName}`);
     }
 
     res.json({
       aiName,
-      thinking,
+      thinking: thinkingFinal,
       choiceText,
       choiceId: choice?.id || null,
     });
