@@ -2,12 +2,14 @@
 // ================ IMPORTS & SOCKET ==================
 // ===================================================
 import { io } from "socket.io-client";
-import { initScene } from "./scene.js";
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
+import { initScene, updateSoloTablet } from "./scene.js";
 
-const socket = io(SOCKET_URL, {
-  transports: ["websocket"],
-});
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;      // e.g. wss://minority-mayhem.onrender.com
+const HTTP_BASE = SOCKET_URL
+  .replace(/^wss:\/\//, "https://")
+  .replace(/^ws:\/\//, "http://");
+
+const socket = io(SOCKET_URL, { transports: ["websocket"] });
 
 // ===================================================
 // ==================== UTILITIES ====================
@@ -26,6 +28,7 @@ function el(tag, attrs = {}, ...children) {
   }
   return e;
 }
+const wait = (ms) => new Promise(r => setTimeout(r, ms));
 
 // ===================================================
 // =================== GLOBAL STATE ==================
@@ -44,15 +47,25 @@ let screen = "home";
 let pendingAIThoughts = [];
 let activeTimerEl = null;
 
+// SOLO state
+const SOLO_MAX_ROUNDS = 10;
+const SOLO_TIMER = 20;
+let soloRoundNo = 0;
+let soloScore = new Map(); // name -> points
+const AI_LIST = [
+  { name: "Chishiya", personality: "You are Chishiya from Alice in Borderland — a calm, calculating genius who treats everything like a psychological game. Speak sparsely." },
+  { name: "Yuuichi",  personality: "You are Yuuichi Katagiri from Tomodachi Game — manipulative, unpredictable; mix kindness with cruelty; always two steps ahead." },
+  { name: "Yumeko",   personality: "You are Yumeko Jabami from Kakegurui — a thrill-seeking gambler who delights in risk. Dramatic, delighted, intense." },
+  { name: "L",        personality: "You are L from Death Note — analytical, monotone, concise; briefly explain reasoning." },
+];
+
 // ===================================================
 // ================= SOCKET REJOIN ===================
 // ===================================================
 socket.on("connect", () => {
   if (roomId && myName) {
     socket.emit("join_room", { roomId, name: myName }, (ack) => {
-      if (ack?.error) {
-        console.warn("Rejoin failed:", ack.error);
-      }
+      if (ack?.error) console.warn("Rejoin failed:", ack.error);
     });
   }
 });
@@ -92,79 +105,279 @@ function renderHome() {
 // ===================================================
 // ===================== SOLO MODE ===================
 // ===================================================
-
 function startSoloMode() {
-  console.log("🎮 Entering Solo Mode (Fake 3D)");
-
-  // Clear any existing socket listeners / UI
   screen = "solo";
-  app.innerHTML = ""; // clear 2D HTML
+  app.innerHTML = "";      // hide 2D UI; the “screen” lives on the 3D tablet
   isHost = false;
   myName = "You";
   myId = "local-player";
   roomId = "SOLO-" + Math.floor(Math.random() * 99999);
 
-  // Launch fake 3D world
+  // scene
   initScene();
 
-  // (optional later)
-  // startSoloRound(); // this could pull AI logic / API
+  // init score
+  soloScore.clear();
+  soloScore.set(myName, 0);
+  for (const ai of AI_LIST) soloScore.set(ai.name, 0);
+  soloRoundNo = 0;
+
+  // HUD for input (transparent; clicks only)
+  mountSoloHUD();
+
+  // go
+  soloNextRound();
 }
 
+function mountSoloHUD() {
+  if (document.getElementById("solo-hud")) return;
 
+  const hud = el("div", {
+    id: "solo-hud",
+    style: `
+      position: fixed; inset: 0; pointer-events: none; z-index: 5;
+      display:flex; align-items:flex-end; justify-content:center; padding-bottom:28px;
+    `
+  });
 
-function spawnAIs(roomId) {
-  const aiList = [
-    { name: "Chishiya", personality: "You are Chishiya from *Alice in Borderland* — a calm, calculating genius who treats everything like a psychological game. You rarely show emotion, you speak in short sentences, and you only reveal what is necessary." },
-    { name: "Yuuichi", personality: "You are Yuuichi Katagiri from *Tomodachi Game* — manipulative, intelligent, and unpredictable. You mix kindness with cruelty, bluff to test others, and always act like you’re two steps ahead." },
-    { name: "Yumeko", personality: "You are Yumeko Jabami from *Kakegurui* — a thrill-seeking gambler who finds excitement in risk. You speak dramatically and sound delighted even in danger." },
-    { name: "L", personality: "You are L from *Death Note* — analytical, monotone, and emotionless. You always explain your reasoning precisely but concisely." },
-  ];
+  const panel = el("div", {
+    id: "solo-panel",
+    style: `
+      display:flex; gap:14px; pointer-events:auto;
+      background: rgba(0,0,0,0.12);
+      padding: 10px 12px; border-radius: 10px;
+      backdrop-filter: blur(2px);
+    `
+  });
+  // buttons get filled per-round
+  hud.appendChild(panel);
 
-  aiList.forEach((ai) => {
-    const aiSocket = io(SOCKET_URL, { transports: ["websocket"] });
-    aiSocket.emit("join_room", { roomId, name: ai.name });
+  // results toast
+  const toast = el("div", {
+    id: "solo-toast",
+    style: `
+      position:absolute; top:18px; left:50%; transform:translateX(-50%);
+      color:#e2e8f0; font-weight:700; font-family: ui-monospace, Menlo, Consolas;
+      background: rgba(0,0,0,0.35); padding: 8px 12px; border-radius: 10px;
+      display:none;
+    `
+  }, "Round results…");
+  hud.appendChild(toast);
 
-    aiSocket.on("round_question", async ({ question, options, roundId }) => {
-      const delay = 2000 + Math.random() * 3000;
+  document.body.appendChild(hud);
+}
 
-      setTimeout(async () => {
-        const aiVote = await getAiVote(ai.name, ai.personality, question, options, roomId);
+function soloSetButtons(options, onPick) {
+  const panel = document.getElementById("solo-panel");
+  if (!panel) return;
+  panel.innerHTML = "";
 
-        if (aiVote?.id) {
-          aiSocket.emit("vote", { roomId, roundId, optionId: aiVote.id });
-        }
-      }, delay);
-    });
+  options.forEach((opt) => {
+    const b = el("button", {
+      class: "btn",
+      style: "min-width:140px;",
+      onclick: () => onPick(opt)
+    }, opt.text || opt);
+    panel.appendChild(b);
   });
 }
 
-async function getAiVote(aiName, aiPersonality, question, options, roomId) {
+async function soloNextRound() {
+  if (soloRoundNo >= SOLO_MAX_ROUNDS) return soloGameOver();
+
+  soloRoundNo += 1;
+  let timer = SOLO_TIMER;
+  const aiLines = [];
+
+  // fetch random question from your backend
+  let qData;
   try {
-    const res = await fetch(`${SOCKET_URL.replace("wss://", "https://")}/api/ai-round`, {
+    const r = await fetch(`${HTTP_BASE}/api/solo/question`);
+    qData = await r.json();
+  } catch (e) {
+    updateSoloTablet({
+      title: `ROUND ${soloRoundNo}`,
+      question: "Failed to load question. Check backend / CORS.",
+      options: [],
+      timer: 0,
+      aiLines
+    });
+    return;
+  }
+
+  const question = qData?.question || { id: 0, text: "Would you rather?" };
+  const options = (qData?.options || []).map(o => ({ id: o.id, text: o.text }));
+  let playerPick = null;
+
+  // show on tablet + clickable HUD buttons
+  updateSoloTablet({
+    title: `ROUND ${soloRoundNo}`,
+    question: question.text,
+    options: options.map(o => o.text),
+    timer,
+    aiLines
+  });
+  soloSetButtons(options, (opt) => {
+    playerPick = opt;
+    // quick visual confirmation toast
+    const toast = document.getElementById("solo-toast");
+    if (toast) {
+      toast.textContent = `You picked: ${opt.text}`;
+      toast.style.display = "block";
+      setTimeout(() => (toast.style.display = "none"), 1200);
+    }
+  });
+
+  // kick off AI decisions with staggered delays
+  const aiPromises = AI_LIST.map(async (ai, idx) => {
+    // small deliberate delay to feel alive
+    await wait(800 + Math.random() * 1500);
+
+    const { thinking, choiceId, choiceText } =
+      await soloGetAIVote(ai.name, ai.personality, question, options);
+
+    // log “thinking” line as they arrive
+    aiLines.push(`${ai.name}: ${thinking || "..."}`);
+    updateSoloTablet({
+      title: `ROUND ${soloRoundNo}`,
+      question: question.text,
+      options: options.map(o => o.text),
+      timer,
+      aiLines
+    });
+
+    return {
+      name: ai.name,
+      option: choiceId
+        ? options.find(o => o.id === Number(choiceId)) || options.find(o => o.text === choiceText) || options[0]
+        : options[0]
+    };
+  });
+
+  // start a timer loop that refreshes the tablet every second
+  const tInt = setInterval(() => {
+    timer -= 1;
+    updateSoloTablet({
+      title: `ROUND ${soloRoundNo}`,
+      question: question.text,
+      options: options.map(o => o.text),
+      timer,
+      aiLines
+    });
+    if (timer <= 0) {
+      clearInterval(tInt);
+    }
+  }, 1000);
+
+  // wait until the timer ends
+  await wait(SOLO_TIMER * 1000);
+
+  // close the round: collect AI votes and player's vote
+  const aiVotes = await Promise.all(aiPromises);
+
+  // if player never chose, pick randomly (MVP)
+  if (!playerPick) {
+    playerPick = options[Math.floor(Math.random() * options.length)];
+  }
+
+  // tally
+  const countsMap = new Map(options.map(o => [o.id, 0]));
+  const votes = [];
+
+  // player
+  countsMap.set(playerPick.id, (countsMap.get(playerPick.id) || 0) + 1);
+  votes.push({ name: myName, optionId: playerPick.id });
+
+  // AIs
+  for (const v of aiVotes) {
+    countsMap.set(v.option.id, (countsMap.get(v.option.id) || 0) + 1);
+    votes.push({ name: v.name, optionId: v.option.id });
+  }
+
+  // compute minority winner (among options with >0 votes)
+  const counts = options.map(o => ({
+    optionId: o.id,
+    text: o.text,
+    count: countsMap.get(o.id) || 0
+  }));
+  const nonzero = counts.filter(c => c.count > 0);
+  let winningOptionId = null;
+  if (nonzero.length > 0) {
+    const min = Math.min(...nonzero.map(c => c.count));
+    const minority = nonzero.filter(c => c.count === min);
+    if (minority.length === 1) winningOptionId = minority[0].optionId;
+  }
+
+  // award points to everyone who picked the minority option
+  const winners = votes.filter(v => v.optionId === winningOptionId).map(v => v.name);
+  for (const name of winners) {
+    soloScore.set(name, (soloScore.get(name) || 0) + 1);
+  }
+
+  // show results on the tablet
+  const winnersText = winners.length
+    ? `Winner(s): ${winners.join(", ")}`
+    : "Tie / No winner";
+  updateSoloTablet({
+    title: `ROUND ${soloRoundNo} — RESULTS`,
+    question: question.text,
+    options: options.map(o => o.text),
+    timer: 0,
+    aiLines,
+    results: { counts, winnersText }
+  });
+
+  // wait a moment then advance
+  await wait(3000);
+  soloNextRound();
+}
+
+async function soloGetAIVote(aiName, aiPersonality, question, options) {
+  try {
+    const r = await fetch(`${HTTP_BASE}/api/ai-round`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ aiName, aiPersonality, question, options, roomId }),
+      body: JSON.stringify({
+        aiName,
+        aiPersonality,
+        question,
+        options,
+        roomId: null     // not using sockets in Solo
+      })
     });
-    const data = await res.json();
-
-    const match = options.find(
-      o => o.text.toLowerCase().trim() === (data.choiceText || "").toLowerCase().trim()
-    ) || options[Math.floor(Math.random() * options.length)];
-    return { id: match.id, text: match.text, thinking: data.thinking || null };
-  } catch (err) {
-    console.error("AI vote failed:", err);
-    const fallback = options[Math.floor(Math.random() * options.length)];
-    return { id: fallback.id, text: fallback.text, thinking: null };
+    const data = await r.json();
+    return {
+      thinking: data?.thinking || "",
+      choiceId: data?.choiceId ?? null,
+      choiceText: data?.choiceText ?? null
+    };
+  } catch (e) {
+    return { thinking: "…", choiceId: null, choiceText: null };
   }
+}
+
+function soloGameOver() {
+  // build leaderboard
+  const board = Array.from(soloScore.entries())
+    .map(([name, points]) => ({ name, points }))
+    .sort((a, b) => b.points - a.points);
+
+  const lines = board.map((p) => `${p.name}: ${p.points} point${p.points === 1 ? "" : "s"}`);
+  updateSoloTablet({
+    title: "🏁 GAME OVER — SOLO",
+    question: "Final leaderboard",
+    options: [],
+    timer: 0,
+    aiLines: lines
+  });
+
+  // remove HUD buttons
+  const panel = document.getElementById("solo-panel");
+  if (panel) panel.innerHTML = "";
 }
 
 // ===================================================
 // ================= MULTIPLAYER MODE ================
-// ===================================================
-
-// ===================================================
-// ===================== ROOMS =======================
 // ===================================================
 function onCreateRoom() {
   if (!myName) myName = prompt("Enter your name")?.trim() || "Player";
@@ -191,7 +404,7 @@ function onJoinRoom(code, name) {
 }
 
 // ===================================================
-// ===================== LOBBY =======================
+// ================== LOBBY / GAME ===================
 // ===================================================
 function renderLobby() {
   screen = "lobby";
@@ -254,9 +467,6 @@ function renderGameStarted({ duration, endAt } = {}) {
   app.appendChild(actions);
 }
 
-// ===================================================
-// ===================== GAME ========================
-// ===================================================
 function renderQuestion({ question, options, roundId, roundNumber }) {
   screen = "question";
   app.innerHTML = "";
@@ -304,6 +514,7 @@ function renderQuestion({ question, options, roundId, roundNumber }) {
   app.appendChild(title);
   app.appendChild(qCard);
 
+  // flush queued AI thoughts (multiplayer path)
   if (window.pendingAIThoughts?.length && renderQuestion._aiLogEl) {
     for (const { aiName, thinking } of window.pendingAIThoughts) {
       renderQuestion._aiLogEl.appendChild(
@@ -414,18 +625,13 @@ function renderGameOver(finalLeaderboard) {
 socket.on("room_state", (s) => {
   if (s.roomId) roomId = s.roomId;
   players = s.players || [];
-  if (screen === "lobby" && !isRoundActive) {
-    renderLobby();
-  }
+  if (screen === "lobby" && !isRoundActive) renderLobby();
 });
 
 socket.on("round_started", ({ duration, endAt }) => {
   isRoundActive = true;
-  if (endAt) {
-    secondsRemaining = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
-  } else if (typeof duration === "number") {
-    secondsRemaining = duration;
-  }
+  if (endAt) secondsRemaining = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
+  else if (typeof duration === "number") secondsRemaining = duration;
   renderGameStarted({ duration, endAt });
 });
 
