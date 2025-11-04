@@ -6,12 +6,10 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 let scene, camera, renderer, controls;
 let tabletMesh, tabletTexture, ctx;
-let seats = [];
-let nameplates = [];
 let jumbotron, jumbotronTexture, jumboCtx;
 
 // ===================================================
-// =============== CANVAS TEXTURE DRAWING ============
+// =============== CANVAS DRAW HELPERS ===============
 // ===================================================
 function drawTablet({
   title = "MAJORITY LOSS — SOLO",
@@ -22,7 +20,6 @@ function drawTablet({
   results = null,
 }) {
   if (!ctx) return;
-
   const w = 1024, h = 768;
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = "#1a1a1a";
@@ -33,10 +30,10 @@ function drawTablet({
   ctx.fillText(title, 36, 70);
 
   ctx.fillStyle = "#ffffff";
-  ctx.font = "700 34px Inter, system-ui, sans-serif";
+  ctx.font = "700 34px Inter";
   wrapText(question, 36, 140, 950, 42);
 
-  ctx.font = "600 30px Inter, system-ui, sans-serif";
+  ctx.font = "600 30px Inter";
   options.forEach((t, i) => {
     const x = 36 + i * 250;
     const y = 330;
@@ -47,9 +44,9 @@ function drawTablet({
   ctx.font = "bold 28px ui-monospace";
   ctx.fillText(`TIME: ${Math.max(0, timer)}s`, 36, 430);
 
-  ctx.font = "600 26px Inter, system-ui, sans-serif";
   let y = 480;
-  aiLines.slice(-6).forEach((line) => {
+  ctx.font = "600 26px Inter";
+  aiLines.slice(-6).forEach(line => {
     ctx.fillStyle = "#94a3b8";
     wrapText(line, 36, y, 950, 30);
     y += 44;
@@ -58,12 +55,11 @@ function drawTablet({
   if (results) {
     ctx.fillStyle = "#f7d046";
     ctx.font = "700 32px ui-monospace";
-    ctx.fillText("RESULTS", 36, 720 - 140);
-
+    ctx.fillText("RESULTS", 36, 580);
     ctx.fillStyle = "#e2e8f0";
-    ctx.font = "600 28px Inter, system-ui, sans-serif";
-    let ry = 720 - 100;
-    results.counts.forEach((c) => {
+    ctx.font = "600 28px Inter";
+    let ry = 620;
+    results.counts.forEach(c => {
       ctx.fillText(`${c.text}: ${c.count}`, 36, ry);
       ry += 34;
     });
@@ -75,37 +71,36 @@ function drawTablet({
   tabletTexture.needsUpdate = true;
 }
 
-function drawScoreboard(leaderboard) {
+function drawScoreboard(leaderboard = []) {
   if (!jumboCtx) return;
-  const w = 512, h = 512;
+  const w = 512, h = 256;
   jumboCtx.clearRect(0, 0, w, h);
-  jumboCtx.fillStyle = "#0a0a0a";
+  jumboCtx.fillStyle = "#000";
   jumboCtx.fillRect(0, 0, w, h);
 
   jumboCtx.fillStyle = "#f7d046";
-  jumboCtx.font = "bold 36px ui-monospace";
-  jumboCtx.fillText("SCOREBOARD", 110, 60);
+  jumboCtx.font = "bold 34px ui-monospace";
+  jumboCtx.fillText("SCOREBOARD", 120, 50);
 
   jumboCtx.fillStyle = "#ffffff";
-  jumboCtx.font = "600 28px Inter";
+  jumboCtx.font = "600 26px Inter";
   leaderboard.forEach((p, i) => {
-    jumboCtx.fillText(`${p.name}: ${p.points}`, 80, 120 + i * 40);
+    jumboCtx.fillText(`${p.name}: ${p.points}`, 100, 100 + i * 30);
   });
 
   jumbotronTexture.needsUpdate = true;
 }
 
-function wrapText(text, x, y, maxWidth, lineHeight) {
+function wrapText(text, x, y, maxWidth, lh) {
   const words = String(text || "").split(" ");
   let line = "";
   for (let n = 0; n < words.length; n++) {
-    const testLine = line + words[n] + " ";
-    const metrics = ctx.measureText(testLine);
-    if (metrics.width > maxWidth && n > 0) {
+    const test = line + words[n] + " ";
+    if (ctx.measureText(test).width > maxWidth && n > 0) {
       ctx.fillText(line, x, y);
       line = words[n] + " ";
-      y += lineHeight;
-    } else line = testLine;
+      y += lh;
+    } else line = test;
   }
   ctx.fillText(line, x, y);
 }
@@ -117,7 +112,7 @@ function button(ctx, x, y, w, h, fg, bg, label) {
   ctx.lineWidth = 3;
   ctx.strokeRect(x, y, w, h);
   ctx.fillStyle = fg;
-  ctx.font = "700 26px Inter, system-ui, sans-serif";
+  ctx.font = "700 26px Inter";
   const tw = ctx.measureText(label).width;
   ctx.fillText(label, x + (w - tw) / 2, y + h / 2 + 9);
 }
@@ -126,82 +121,79 @@ function button(ctx, x, y, w, h, fg, bg, label) {
 // ================== INIT SCENE =====================
 // ===================================================
 export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"]) {
-  if (document.querySelector("canvas#solo-bg")) return;
-
+  if (document.querySelector("#solo-bg")) return;
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x050505);
 
-  // Renderer
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.domElement.id = "solo-bg";
   document.body.appendChild(renderer.domElement);
 
-  // Camera
+  // Player camera now sits at back of circle looking inward
   camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
-  camera.position.set(0, 1.6, 2.2);
+  camera.position.set(0, 1.6, -3.8);   // moved behind table
   camera.lookAt(0, 1.2, 0);
 
-  // Controls (look-around)
   controls = new OrbitControls(camera, renderer.domElement);
-  controls.enablePan = false;
   controls.enableZoom = false;
+  controls.enablePan = false;
   controls.minPolarAngle = Math.PI / 3;
   controls.maxPolarAngle = Math.PI / 2;
   controls.target.set(0, 1.2, 0);
 
-  // Lighting — boosted
-  scene.add(new THREE.AmbientLight(0x7070a0, 1.2));
-  const spot = new THREE.SpotLight(0xffffff, 1.6, 20, Math.PI / 3, 0.3);
-  spot.position.set(0, 6, 0);
+  // Lighting — brighter
+  scene.add(new THREE.AmbientLight(0x9090c0, 1.3));
+  const spot = new THREE.SpotLight(0xffffff, 1.4, 20, Math.PI / 3);
+  spot.position.set(0, 5, 0);
   scene.add(spot);
+  const fill = new THREE.PointLight(0xffc870, 0.6, 10);
+  fill.position.set(0, 2, 0);
+  scene.add(fill);
 
-  const tableLight = new THREE.PointLight(0xffd580, 0.6, 10);
-  tableLight.position.set(0, 2.2, 0);
-  scene.add(tableLight);
-
-  // Floor + Table
-  const floor = new THREE.Mesh(new THREE.CircleGeometry(7, 64), new THREE.MeshStandardMaterial({ color: 0x111111 }));
+  // Floor / table
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(7, 64),
+    new THREE.MeshStandardMaterial({ color: 0x111111 }));
   floor.rotation.x = -Math.PI / 2;
   scene.add(floor);
 
-  const table = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.4, 0.25, 40), new THREE.MeshStandardMaterial({ color: 0x151515 }));
+  const table = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 2.5, 0.25, 40),
+    new THREE.MeshStandardMaterial({ color: 0x151515 }));
   table.position.y = 0.9;
   scene.add(table);
 
-  // Seats + Nameplates
+  // AIs in front half of circle
   const radius = 3.4;
   const chairGeo = new THREE.BoxGeometry(0.7, 0.9, 0.7);
   const bodyGeo = new THREE.SphereGeometry(0.35, 16, 16);
-  const visibleAIs = aiNames.slice(1);
-
-  visibleAIs.forEach((name, i) => {
-    const a = THREE.MathUtils.degToRad(-60 + (i * 40));
+  aiNames.slice(1).forEach((name, i) => {
+    const a = THREE.MathUtils.degToRad(-70 + i * 45);
     const chair = new THREE.Mesh(chairGeo, new THREE.MeshStandardMaterial({ color: 0x222222 }));
     chair.position.set(Math.sin(a) * radius, 0.45, Math.cos(a) * radius);
     chair.lookAt(0, 0.45, 0);
     scene.add(chair);
 
-    const body = new THREE.Mesh(bodyGeo, new THREE.MeshStandardMaterial({ color: 0x202024 }));
+    const body = new THREE.Mesh(bodyGeo, new THREE.MeshStandardMaterial({ color: 0x222228 }));
     body.position.set(chair.position.x, 1.1, chair.position.z);
     scene.add(body);
 
     const plateCanvas = document.createElement("canvas");
     plateCanvas.width = 256; plateCanvas.height = 64;
     const pctx = plateCanvas.getContext("2d");
-    pctx.fillStyle = "#000"; pctx.fillRect(0, 0, 256, 64);
-    pctx.fillStyle = "#f7d046"; pctx.font = "bold 28px ui-monospace";
+    pctx.fillStyle = "#000";
+    pctx.fillRect(0, 0, 256, 64);
+    pctx.fillStyle = "#f7d046";
+    pctx.font = "bold 28px ui-monospace";
     pctx.textAlign = "center"; pctx.textBaseline = "middle";
     pctx.fillText(name, 128, 32);
-    const plateTex = new THREE.CanvasTexture(plateCanvas);
     const plate = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.3),
-      new THREE.MeshBasicMaterial({ map: plateTex, transparent: true, side: THREE.DoubleSide }));
+      new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(plateCanvas), transparent: true, side: THREE.DoubleSide }));
     plate.position.set(chair.position.x, 1.7, chair.position.z);
-    plate.lookAt(0, 1.2, 0);
+    plate.lookAt(0, 1.3, 0);
     scene.add(plate);
   });
 
-  // Player Tablet — rotated toward player
+  // Tablet directly in front of camera
   const canvas = document.createElement("canvas");
   canvas.width = 1024; canvas.height = 768;
   ctx = canvas.getContext("2d");
@@ -209,14 +201,14 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
   const tabletMat = new THREE.MeshBasicMaterial({ map: tabletTexture, side: THREE.DoubleSide });
   const tabletGeo = new THREE.PlaneGeometry(1.9, 1.45);
   tabletMesh = new THREE.Mesh(tabletGeo, tabletMat);
-  tabletMesh.position.set(0, 1.05, 1.15);
-  tabletMesh.rotation.x = -0.3; // slightly leaning back
+  tabletMesh.position.set(0, 1.1, -2.2);
+  tabletMesh.rotation.x = 0.25; // tilt slightly away from player
   scene.add(tabletMesh);
   drawTablet({ question: "Loading..." });
 
-  // Jumbotron — lowered & emissive
+  // Smaller jumbotron now centered above table
   const jumboCanvas = document.createElement("canvas");
-  jumboCanvas.width = 512; jumboCanvas.height = 512;
+  jumboCanvas.width = 512; jumboCanvas.height = 256;
   jumboCtx = jumboCanvas.getContext("2d");
   jumbotronTexture = new THREE.CanvasTexture(jumboCanvas);
   const jumboMat = new THREE.MeshStandardMaterial({
@@ -225,19 +217,13 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
     emissiveIntensity: 0.5,
     side: THREE.DoubleSide,
   });
-  jumbotron = new THREE.Mesh(new THREE.BoxGeometry(3, 1.5, 3), jumboMat);
-  jumbotron.position.set(0, 3.2, 0);
+  jumbotron = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.9, 1.8), jumboMat);
+  jumbotron.position.set(0, 2.6, 0);
   scene.add(jumbotron);
 
-  // Light for jumbotron
-  const jumboLight = new THREE.PointLight(0x6688ff, 0.6, 8);
-  jumboLight.position.set(0, 3.2, 0);
+  const jumboLight = new THREE.PointLight(0x6688ff, 0.5, 6);
+  jumboLight.position.set(0, 2.6, 0);
   scene.add(jumboLight);
-
-  // Pole
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.0), new THREE.MeshStandardMaterial({ color: 0x333333 }));
-  pole.position.set(0, 4.0, 0);
-  scene.add(pole);
 
   window.addEventListener("resize", () => {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -251,24 +237,14 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
 // ===================================================
 // ================= PUBLIC API ======================
 // ===================================================
-export function updatePlayerTablet(payload) {
-  drawTablet(payload || {});
-}
-
-export function updateScoreboard(leaderboard) {
-  drawScoreboard(leaderboard || []);
-}
-
-export function showResultsMode(on) {
-  if (jumbotron) jumbotron.visible = on;
-}
+export function updatePlayerTablet(payload) { drawTablet(payload || {}); }
+export function updateScoreboard(lb) { drawScoreboard(lb || []); }
+export function showResultsMode(on) { if (jumbotron) jumbotron.visible = on; }
 
 function animate() {
   requestAnimationFrame(animate);
-  if (jumbotron && jumbotron.visible) jumbotron.rotation.y += 0.002;
   controls.update();
+  if (jumbotron && jumbotron.visible) jumbotron.rotation.y += 0.002;
   renderer.render(scene, camera);
 }
-
-// compatibility alias
 export const updateSoloTablet = updatePlayerTablet;
