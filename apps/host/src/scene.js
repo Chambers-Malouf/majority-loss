@@ -25,40 +25,46 @@ function drawTablet({
   ctx.fillStyle = "#1a1a1a";
   ctx.fillRect(0, 0, w, h);
 
+  // === TITLE ===
   ctx.fillStyle = "#f7d046";
   ctx.font = "bold 42px ui-monospace";
   ctx.fillText(title, 36, 70);
 
+  // === QUESTION ===
   ctx.fillStyle = "#ffffff";
   ctx.font = "700 34px Inter";
-  wrapText(question, 36, 140, 950, 42);
+  wrapText(question, 36, 135, 950, 42);
 
+  // === OPTIONS ===
   ctx.font = "600 30px Inter";
+  const buttonY = 285; // moved up from 330
   options.forEach((t, i) => {
     const x = 36 + i * 250;
-    const y = 330;
-    button(ctx, x, y, 220, 60, "#f7d046", "#1b1b1b", t);
+    button(ctx, x, buttonY, 220, 60, "#f7d046", "#1b1b1b", t);
   });
 
+  // === TIMER ===
   ctx.fillStyle = "#c6c6c6";
   ctx.font = "bold 28px ui-monospace";
-  ctx.fillText(`TIME: ${Math.max(0, timer)}s`, 36, 430);
+  ctx.fillText(`TIME: ${Math.max(0, timer)}s`, 36, 375); // moved up from 430
 
-  let y = 480;
+  // === AI LINES ===
+  let y = 420; // moved up from 480
   ctx.font = "600 26px Inter";
   aiLines.slice(-6).forEach(line => {
     ctx.fillStyle = "#94a3b8";
     wrapText(line, 36, y, 950, 30);
-    y += 44;
+    y += 42;
   });
 
+  // === RESULTS (unchanged) ===
   if (results) {
     ctx.fillStyle = "#f7d046";
     ctx.font = "700 32px ui-monospace";
-    ctx.fillText("RESULTS", 36, 580);
+    ctx.fillText("RESULTS", 36, 620);
     ctx.fillStyle = "#e2e8f0";
     ctx.font = "600 28px Inter";
-    let ry = 620;
+    let ry = 660;
     results.counts.forEach(c => {
       ctx.fillText(`${c.text}: ${c.count}`, 36, ry);
       ry += 34;
@@ -70,6 +76,7 @@ function drawTablet({
 
   tabletTexture.needsUpdate = true;
 }
+
 
 function drawScoreboard(leaderboard = []) {
   if (!jumboCtx) return;
