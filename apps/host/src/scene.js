@@ -5,99 +5,153 @@ import * as THREE from "three";
 
 let scene, camera, renderer;
 let lights = {};
-let tabletTexture, ctx;                // shared canvas for now (player + center)
-let seats = [];                        // chair meshes
-let figures = [];                      // low-poly people (body/head)
-let nameplates = [];                   // floating name signs
-let tablets = [];                      // one tablet mesh per seat
-let centerDisplay = null;              // the jumbotron in the middle
+let seats = [];            // chairs
+let figures = [];          // low-poly AI bodies/heads
+let nameplates = [];       // each AI name sign
+let tablets = [];          // per-seat tablets (player + AI)
+let jumbotron = null;      // 4-face cube
+let jumbotronGroup = null; // cube + pole
+let resultsMode = false;   // if true: show cube, hide question UI vibe
 
-// small helpers we reuse
+// Two separate canvases/textures:
+// 1) playerTabletTexture -> shown on all personal tablets (your Q/opts/timer)
+// 2) scoreboardTexture   -> shown on all jumbotron faces during results
+let playerTabletTexture, playerCtx;
+let scoreboardTexture, scoreCtx;
+
+// a small helper
 const DEG = Math.PI / 180;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 // ===================================================
-// =============== CANVAS TEXTURE DRAWING ============
+// ======= DRAWING: PLAYER TABLET (QUESTION VIEW) ====
 // ===================================================
-function drawTablet({
+function drawPlayerTablet({
   title = "MAJORITY LOSS — SOLO",
   question = "",
   options = [],
   timer = 0,
   aiLines = [],
-  results = null,
 }) {
-  if (!ctx) return;
+  if (!playerCtx) return;
 
   const w = 1024, h = 768;
-  ctx.clearRect(0, 0, w, h);
+  playerCtx.clearRect(0, 0, w, h);
 
-  // background panel
-  ctx.fillStyle = "#111214";
-  ctx.fillRect(0, 0, w, h);
+  // panel background
+  playerCtx.fillStyle = "#111214";
+  playerCtx.fillRect(0, 0, w, h);
 
   // header
-  ctx.fillStyle = "#f7d046";
-  ctx.font = "bold 42px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
-  ctx.fillText(title, 36, 70);
+  playerCtx.fillStyle = "#f7d046";
+  playerCtx.font = "bold 42px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+  playerCtx.fillText(title, 36, 70);
 
   // question
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "700 34px Inter, system-ui, sans-serif";
-  wrapText(question, 36, 140, 950, 42);
+  playerCtx.fillStyle = "#ffffff";
+  playerCtx.font = "700 34px Inter, system-ui, sans-serif";
+  wrapText(playerCtx, question, 36, 140, 950, 42);
 
-  // options (visual only on this texture; real buttons live in your DOM)
-  ctx.font = "600 30px Inter, system-ui, sans-serif";
+  // options (visual only — your DOM buttons still handle input)
+  playerCtx.font = "600 30px Inter, system-ui, sans-serif";
   options.forEach((t, i) => {
     const x = 36 + i * 250;
     const y = 330;
-    button(ctx, x, y, 220, 60, "#f7d046", "#1b1b1b", t);
+    drawButton(playerCtx, x, y, 220, 60, "#f7d046", "#1b1b1b", t);
   });
 
   // timer
-  ctx.fillStyle = "#c6c6c6";
-  ctx.font = "bold 28px ui-monospace, SFMono-Regular, Menlo";
-  ctx.fillText(`TIME: ${Math.max(0, timer)}s`, 36, 430);
+  playerCtx.fillStyle = "#c6c6c6";
+  playerCtx.font = "bold 28px ui-monospace, SFMono-Regular, Menlo";
+  playerCtx.fillText(`TIME: ${Math.max(0, timer)}s`, 36, 430);
 
-  // AI lines
-  ctx.font = "600 26px Inter, system-ui, sans-serif";
+  // AI chatter (latest 6)
+  playerCtx.font = "600 26px Inter, system-ui, sans-serif";
   let y = 480;
   aiLines.slice(-6).forEach((line) => {
-    ctx.fillStyle = "#94a3b8";
-    wrapText(line, 36, y, 950, 30);
+    playerCtx.fillStyle = "#94a3b8";
+    wrapText(playerCtx, line, 36, y, 950, 30);
     y += 44;
   });
 
-  // results (if any)
-  if (results) {
-    ctx.fillStyle = "#f7d046";
-    ctx.font = "700 32px ui-monospace, SFMono-Regular, Menlo";
-    ctx.fillText("RESULTS", 36, 580);
-
-    ctx.fillStyle = "#e2e8f0";
-    ctx.font = "600 28px Inter, system-ui, sans-serif";
-    let ry = 620;
-    results.counts.forEach((c) => {
-      ctx.fillText(`${c.text}: ${c.count}`, 36, ry);
-      ry += 34;
-    });
-
-    ctx.fillStyle = "#a7f3d0";
-    ctx.font = "700 28px ui-monospace, SFMono-Regular, Menlo";
-    ctx.fillText(results.winnersText, 36, ry + 10);
-  }
-
-  // push pixels to GPU
-  tabletTexture.needsUpdate = true;
+  playerTabletTexture.needsUpdate = true;
 }
 
-function wrapText(text, x, y, maxWidth, lineHeight) {
+// ===================================================
+// ======= DRAWING: JUMBOTRON (SCOREBOARD VIEW) ======
+// ===================================================
+/**
+ * scoreboard = {
+ *   round: number,
+ *   winnersText: "Yumeko & L win the round",
+ *   rows: [{ name: "You", points: 2 }, { name: "Yumeko", points: 3 }, ...] // sorted or not; we’ll format
+ * }
+ */
+function drawScoreboard(scoreboard = { round: 1, winnersText: "", rows: [] }) {
+  if (!scoreCtx) return;
+
+  const w = 1024, h = 768;
+  scoreCtx.clearRect(0, 0, w, h);
+
+  // background
+  scoreCtx.fillStyle = "#0f1114";
+  scoreCtx.fillRect(0, 0, w, h);
+
+  // title
+  scoreCtx.fillStyle = "#60a5fa";
+  scoreCtx.font = "bold 40px ui-monospace";
+  scoreCtx.fillText(`ROUND ${scoreboard.round} — RESULTS`, 36, 70);
+
+  // winners
+  scoreCtx.fillStyle = "#fcd34d";
+  scoreCtx.font = "700 34px Inter";
+  wrapText(scoreCtx, scoreboard.winnersText || "—", 36, 128, 950, 40);
+
+  // leaderboard header
+  scoreCtx.fillStyle = "#94a3b8";
+  scoreCtx.font = "bold 28px ui-monospace";
+  scoreCtx.fillText("LEADERBOARD", 36, 190);
+
+  // sort by points desc (don’t mutate caller array)
+  const rows = [...(scoreboard.rows || [])].sort((a, b) => (b.points || 0) - (a.points || 0));
+
+  // table
+  const startY = 230;
+  const lineH = 42;
+  scoreCtx.font = "600 28px Inter";
+  rows.forEach((r, i) => {
+    const y = startY + i * lineH;
+    const rank = i + 1;
+
+    // zebra stripes for readability
+    if (i % 2 === 0) {
+      scoreCtx.fillStyle = "rgba(255,255,255,0.04)";
+      scoreCtx.fillRect(30, y - 28, w - 60, lineH);
+    }
+
+    scoreCtx.fillStyle = "#e5e7eb";
+    scoreCtx.fillText(`${rank}. ${r.name}`, 36, y);
+    scoreCtx.fillStyle = "#fbbf24";
+    const pts = `${r.points ?? 0} pts`;
+    const tw = scoreCtx.measureText(pts).width;
+    scoreCtx.fillText(pts, w - 36 - tw, y);
+  });
+
+  // subtle footer hint
+  scoreCtx.fillStyle = "#64748b";
+  scoreCtx.font = "600 22px Inter";
+  scoreCtx.fillText("Next round starts shortly…", 36, h - 36);
+
+  scoreboardTexture.needsUpdate = true;
+}
+
+// shared helpers for both canvases
+function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
   const words = String(text || "").split(" ");
   let line = "";
   for (let n = 0; n < words.length; n++) {
     const testLine = line + words[n] + " ";
-    const metrics = ctx.measureText(testLine);
-    if (metrics.width > maxWidth && n > 0) {
+    if (ctx.measureText(testLine).width > maxWidth && n > 0) {
       ctx.fillText(line, x, y);
       line = words[n] + " ";
       y += lineHeight;
@@ -108,7 +162,7 @@ function wrapText(text, x, y, maxWidth, lineHeight) {
   ctx.fillText(line, x, y);
 }
 
-function button(ctx, x, y, w, h, fg, bg, label) {
+function drawButton(ctx, x, y, w, h, fg, bg, label) {
   ctx.fillStyle = bg;
   ctx.fillRect(x, y, w, h);
   ctx.strokeStyle = "#2b2b2b";
@@ -123,26 +177,18 @@ function button(ctx, x, y, w, h, fg, bg, label) {
 // ===================================================
 // ================== INIT SCENE =====================
 // ===================================================
-export function initScene(
-  aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"]
-) {
-  // only build once
-  if (document.querySelector("canvas#solo-bg")) return;
+export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"]) {
+  if (document.querySelector("canvas#solo-bg")) return; // build once
 
-  // --- scene & fog (depth falloff) ---
+  // ----- Scene & Fog -----
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x070707);
   scene.fog = new THREE.Fog(0x000000, 9, 16);
 
-  // --- camera: over-the-shoulder of the player (index 0) ---
-  camera = new THREE.PerspectiveCamera(
-    55,                                  // slightly tighter than 60 for punchier frame
-    window.innerWidth / window.innerHeight,
-    0.1,
-    60
-  );
+  // ----- Camera: first-person (eye level) -----
+  camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 60);
 
-  // --- renderer (with shadows for stage feel) ---
+  // ----- Renderer -----
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.domElement.id = "solo-bg";
@@ -158,22 +204,20 @@ export function initScene(
   });
   document.body.appendChild(renderer.domElement);
 
-  // --- lights: moody game-show ---
-  lights.ambient = new THREE.AmbientLight(0x222222, 1.5); // soft general fill
+  // ----- Lights (moody stage) -----
+  lights.ambient = new THREE.AmbientLight(0x223043, 1.55); // cool global fill
   scene.add(lights.ambient);
 
-  // warm key spotlight from above center
-  lights.key = new THREE.SpotLight(0xffd38a, 2.7, 35, 30 * DEG, 0.45, 1.8);
+  lights.key = new THREE.SpotLight(0xffd38a, 2.7, 35, 30 * DEG, 0.45, 1.8); // warm top
   lights.key.position.set(0, 8, 0);
   lights.key.castShadow = true;
   scene.add(lights.key);
 
-  // cool rim from behind player
-  lights.rim = new THREE.PointLight(0x86a6ff, 0.8, 18);
+  lights.rim = new THREE.PointLight(0x86a6ff, 0.8, 18); // cool back light
   lights.rim.position.set(0, 3, -7);
   scene.add(lights.rim);
 
-  // subtle ring of low point lights around table edge (soft face light)
+  // ring points to gently light faces/tablets
   const ringRadius = 4.2;
   for (let i = 0; i < 4; i++) {
     const ang = (i / 4) * Math.PI * 2;
@@ -182,7 +226,7 @@ export function initScene(
     scene.add(pl);
   }
 
-  // --- floor & table ---
+  // ----- Floor & Table -----
   const floor = new THREE.Mesh(
     new THREE.CircleGeometry(9, 64),
     new THREE.MeshStandardMaterial({ color: 0x080808, roughness: 1 })
@@ -195,39 +239,42 @@ export function initScene(
     new THREE.MeshStandardMaterial({ color: 0x101010, metalness: 0.15, roughness: 0.85 })
   );
   table.position.y = 0.9;
-  table.castShadow = false;
   table.receiveShadow = true;
   scene.add(table);
 
-  // --- seating ring & props ---
+  // ----- Build canvas textures -----
+  // Player/question canvas
+  {
+    const c = document.createElement("canvas");
+    c.width = 1024; c.height = 768;
+    playerCtx = c.getContext("2d");
+    playerTabletTexture = new THREE.CanvasTexture(c);
+    drawPlayerTablet({ question: "Loading...", options: [], timer: 0, aiLines: [] });
+  }
+  // Scoreboard canvas
+  {
+    const c = document.createElement("canvas");
+    c.width = 1024; c.height = 768;
+    scoreCtx = c.getContext("2d");
+    scoreboardTexture = new THREE.CanvasTexture(c);
+    drawScoreboard({ round: 1, winnersText: "—", rows: [] });
+  }
+
+  // ----- Seats, Figures, Nameplates, Tablets -----
   seats = [];
   figures = [];
   nameplates = [];
   tablets = [];
 
-  const radius = 4.4; // a bit wider so the camera can see all AI
+  const radius = 4.4; // spacing
   const chairGeo = new THREE.BoxGeometry(0.72, 0.9, 0.72);
-
-  // low-poly person parts
   const bodyGeo = new THREE.CylinderGeometry(0.22, 0.26, 0.85, 6);
   const headGeo = new THREE.SphereGeometry(0.22, 12, 12);
-
-  // tablet geometry/material (one per seat)
   const seatTabletGeo = new THREE.PlaneGeometry(0.95, 0.7);
-  const seatTabletMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
 
-  // build a shared canvas/texture for now (player + center show same content)
-  const canvas = document.createElement("canvas");
-  canvas.width = 1024;
-  canvas.height = 768;
-  ctx = canvas.getContext("2d");
-  tabletTexture = new THREE.CanvasTexture(canvas);
-
-  // place all seats (0 = player, then 4 AI)
   aiNames.forEach((name, i) => {
-    // angle arrangement: put player at the "near" side, AI across the table
-    // player faces +Z -> we'll offset angles so player sits closest to camera
-    const angle = (i / aiNames.length) * Math.PI * 2 + Math.PI; // rotate so index 0 is near camera
+    // arrange so player (i=0) is near the camera side
+    const angle = (i / aiNames.length) * Math.PI * 2 + Math.PI;
     const x = Math.cos(angle) * radius;
     const z = Math.sin(angle) * radius;
 
@@ -239,112 +286,145 @@ export function initScene(
     chair.position.set(x, 0.45, z);
     chair.lookAt(0, 0.45, 0);
     chair.castShadow = true;
-    chair.receiveShadow = true;
     scene.add(chair);
     seats.push(chair);
 
-    // low-poly person (body + head)
-    const body = new THREE.Mesh(
-      bodyGeo,
-      new THREE.MeshStandardMaterial({ color: i === 0 ? 0x49546c : 0x3a3d49 })
-    );
-    body.position.set(x, 1.0, z);
-    body.lookAt(0, 1.0, 0);
-    body.castShadow = true;
-    body.receiveShadow = true;
-    scene.add(body);
+    // low-poly person (skip making the player's own body in first-person)
+    if (i !== 0) {
+      const body = new THREE.Mesh(
+        bodyGeo,
+        new THREE.MeshStandardMaterial({ color: 0x3a3d49 })
+      );
+      body.position.set(x, 1.0, z);
+      body.lookAt(0, 1.0, 0);
+      body.castShadow = true;
+      scene.add(body);
 
-    const head = new THREE.Mesh(
-      headGeo,
-      new THREE.MeshStandardMaterial({ color: i === 0 ? 0x9aa4bf : 0x8b90a3 })
-    );
-    head.position.set(x, 1.55, z);
-    head.lookAt(0, 1.0, 0);
-    head.castShadow = true;
-    head.receiveShadow = true;
-    scene.add(head);
+      const head = new THREE.Mesh(
+        headGeo,
+        new THREE.MeshStandardMaterial({ color: 0x8b90a3 })
+      );
+      head.position.set(x, 1.55, z);
+      head.lookAt(0, 1.0, 0);
+      head.castShadow = true;
+      scene.add(head);
 
-    figures.push({ body, head });
+      figures.push({ body, head });
+    } else {
+      figures.push({ body: null, head: null });
+    }
 
-    // nameplate above head
-    const plateCanvas = document.createElement("canvas");
-    plateCanvas.width = 256;
-    plateCanvas.height = 64;
-    const pctx = plateCanvas.getContext("2d");
-    pctx.fillStyle = "black";
-    pctx.fillRect(0, 0, 256, 64);
-    pctx.fillStyle = "#f7d046";
-    pctx.font = "bold 28px ui-monospace";
-    pctx.textAlign = "center";
-    pctx.textBaseline = "middle";
-    pctx.fillText(name, 128, 32);
-    const plateTex = new THREE.CanvasTexture(plateCanvas);
-    const plate = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.2, 0.3),
-      new THREE.MeshBasicMaterial({ map: plateTex, transparent: true })
-    );
-    plate.position.set(x, 2.0, z);
-    plate.lookAt(0, 2.0, 0);
-    scene.add(plate);
-    nameplates.push(plate);
+    // nameplate above head area (even for player seat, it marks "You")
+    {
+      const plateCanvas = document.createElement("canvas");
+      plateCanvas.width = 256; plateCanvas.height = 64;
+      const pctx = plateCanvas.getContext("2d");
+      pctx.fillStyle = "black";
+      pctx.fillRect(0, 0, 256, 64);
+      pctx.fillStyle = "#f7d046";
+      pctx.font = "bold 28px ui-monospace";
+      pctx.textAlign = "center";
+      pctx.textBaseline = "middle";
+      pctx.fillText(name, 128, 32);
+      const plateTex = new THREE.CanvasTexture(plateCanvas);
+      const plate = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.2, 0.3),
+        new THREE.MeshBasicMaterial({ map: plateTex, transparent: true })
+      );
+      plate.position.set(x, 2.0, z);
+      plate.lookAt(0, 2.0, 0);
+      scene.add(plate);
+      nameplates.push(plate);
+    }
 
-    // personal tablet on table, angled toward sitter
-    const tablet = new THREE.Mesh(
-      seatTabletGeo,
-      new THREE.MeshBasicMaterial({ map: tabletTexture }) // same content on all for now
-    );
-    // put tablet between seat and table center
-    const toCenter = new THREE.Vector3(-x, 0, -z).normalize();
-    const tabletPos = new THREE.Vector3(x, 1.10, z).addScaledVector(toCenter, 1.3);
-    tablet.position.copy(tabletPos);
-    // tilt toward sitter (i.e., away from center a bit)
-    const lookTarget = new THREE.Vector3(x, 1.3, z);
-    tablet.lookAt(lookTarget);
-    // lay it down slightly like a real tablet
-    tablet.rotateX(15 * DEG);
-    scene.add(tablet);
-    tablets.push(tablet);
+    // personal tablet on the table (all show playerTabletTexture)
+    {
+      const mat = new THREE.MeshBasicMaterial({ map: playerTabletTexture });
+      const tablet = new THREE.Mesh(seatTabletGeo, mat);
+
+      // between seat and center
+      const toCenter = new THREE.Vector3(-x, 0, -z).normalize();
+      const tabletPos = new THREE.Vector3(x, 1.10, z).addScaledVector(toCenter, 1.3);
+      tablet.position.copy(tabletPos);
+
+      // face the sitter (away from center slightly) and tilt
+      tablet.lookAt(new THREE.Vector3(x, 1.3, z));
+      tablet.rotateX(15 * DEG);
+
+      scene.add(tablet);
+      tablets.push(tablet);
+    }
   });
 
-  // --- center jumbotron (big screen visible to all) ---
-  centerDisplay = new THREE.Mesh(
-    new THREE.PlaneGeometry(2.3, 1.6),
-    new THREE.MeshBasicMaterial({ map: tabletTexture })
-  );
-  centerDisplay.position.set(0, 1.9, 0.2);
-  centerDisplay.lookAt(0, 1.6, 0);       // subtly lean toward viewers
-  scene.add(centerDisplay);
+  // ----- Jumbotron cube (hidden until resultsMode = true) -----
+  {
+    const cubeW = 2.6, cubeH = 1.6, cubeD = 2.6;
 
-  // draw initial content once
-  drawTablet({
-    title: "MAJORITY LOSS — SOLO",
-    question: "Loading...",
-    options: [],
-    timer: 0,
-    aiLines: [],
-  });
+    // 6 materials: we want 4 sides to show the scoreboard texture,
+    // top/bottom stay dark.
+    const faceMat = new THREE.MeshLambertMaterial({
+      map: scoreboardTexture,
+      emissive: new THREE.Color(0x0a2540),   // subtle glow
+      emissiveIntensity: 0.25
+    });
+    const darkMat = new THREE.MeshStandardMaterial({ color: 0x0b0b0c, roughness: 0.9 });
 
-  // --- place camera behind/above the player's head (seat index 0) ---
-  placeCameraOverShoulder();
+    // material order: px, nx, py, ny, pz, nz
+    const mats = [faceMat, faceMat, darkMat, darkMat, faceMat, faceMat];
 
-  // --- resize handling ---
+    jumbotron = new THREE.Mesh(new THREE.BoxGeometry(cubeW, cubeH, cubeD), mats);
+    jumbotron.castShadow = false;
+    jumbotron.receiveShadow = false;
+
+    // hang from a short pole
+    const pole = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.05, 0.05, 0.9, 12),
+      new THREE.MeshStandardMaterial({ color: 0x121212, roughness: 0.7 })
+    );
+    pole.position.y = (0.9 + cubeH / 2);
+
+    jumbotronGroup = new THREE.Group();
+    jumbotronGroup.add(jumbotron);
+    jumbotronGroup.add(pole);
+    jumbotronGroup.position.set(0, 2.0, 0); // above table center
+    scene.add(jumbotronGroup);
+
+    jumbotronGroup.visible = false; // hidden during question phase
+  }
+
+  // ----- Camera placement (first-person at player seat) -----
+  placeCameraFirstPerson(); // sets initial eye position & look direction
+
+  // ----- Resize handling -----
   window.addEventListener("resize", () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
-  // run loop
   animate();
 }
 
 // ===================================================
 // ================= PUBLIC API ======================
 // ===================================================
-export function updateSoloTablet(payload) {
-  // For now we mirror the same canvas to: all seat tablets + center jumbotron.
-  // Later you can split player/private vs public/center if you want.
-  drawTablet(payload || {});
+
+// Called by your game loop to update the QUESTION view.
+// Mirrors onto *all* seat tablets (including yours).
+export function updatePlayerTablet(payload) {
+  drawPlayerTablet(payload || {});
+}
+
+// Called by your game loop when you have round RESULTS/LEADERBOARD.
+export function updateScoreboard(scoreboard) {
+  drawScoreboard(scoreboard || {});
+}
+
+// Toggle between normal question phase (false) and results phase (true).
+export function showResultsMode(on) {
+  resultsMode = !!on;
+  // During results: keep per-seat tablets showing last state, but reveal cube.
+  if (jumbotronGroup) jumbotronGroup.visible = resultsMode;
 }
 
 // ===================================================
@@ -356,49 +436,50 @@ document.addEventListener("mousemove", (e) => {
   mouseY = (e.clientY / window.innerHeight - 0.5) * 2;
 });
 
-function placeCameraOverShoulder() {
+function placeCameraFirstPerson() {
   // player seat is index 0
   const seat = seats[0];
   if (!seat) return;
 
-  // vector from center to seat (where the player faces)
+  // unit vector from center to seat
   const dir = new THREE.Vector3().copy(seat.position).normalize();
 
-  // place camera slightly BEHIND the player along dir, then raise it
-  const back = new THREE.Vector3().copy(dir).multiplyScalar(1.0); // behind distance
-  const pos = new THREE.Vector3().copy(seat.position).add(back);
-  pos.y = 1.65; // eye height
+  // put eyes slightly inside the arc toward center so your tablet is visible
+  const eye = new THREE.Vector3().copy(seat.position).addScaledVector(dir, 0.35); // a little toward seat back
+  eye.addScaledVector(dir, -0.8); // nudge inward toward table
+  eye.y = 1.58; // eye height at table
 
-  camera.position.copy(pos);
-
-  // camera looks toward table center but a hair above for pleasing angle
-  camera.lookAt(0, 1.25, 0);
+  camera.position.copy(eye);
+  camera.lookAt(0, 1.2, 0); // look toward table center
 }
 
 function animate() {
   requestAnimationFrame(animate);
 
-  // breathing/sway
-  const swayX = clamp(mouseX * 0.6, -0.8, 0.8);
-  const swayY = clamp(-mouseY * 0.3, -0.4, 0.6);
-
-  if (seats[0]) {
-    // keep camera tethered to player's seat each frame
-    const seat = seats[0];
-    const dir = new THREE.Vector3().copy(seat.position).normalize();
-    const base = new THREE.Vector3().copy(seat.position).addScaledVector(dir, 1.0);
-    base.y = 1.65;
-
-    camera.position.lerp(
-      new THREE.Vector3(base.x + swayX, base.y + swayY, base.z),
-      0.08
-    );
-    camera.lookAt(0, 1.25, 0);
+  // gently vary the key light like a stage dimmer
+  if (lights.key) {
+    lights.key.intensity = 2.5 + Math.sin(Date.now() * 0.0018) * 0.25;
   }
 
-  // subtle pulsing of key light like a stage dimmer
-  if (lights.key) {
-    lights.key.intensity = 2.5 + Math.sin(Date.now() * 0.0018) * 0.3;
+  // keep camera tethered to player seat with subtle head sway
+  const seat = seats[0];
+  if (seat) {
+    const dir = new THREE.Vector3().copy(seat.position).normalize();
+    const base = new THREE.Vector3().copy(seat.position)
+      .addScaledVector(dir, -0.45); // a bit inward toward table
+    base.y = 1.58;
+
+    const swayX = clamp(mouseX * 0.3, -0.4, 0.4);
+    const swayY = clamp(-mouseY * 0.2, -0.25, 0.35);
+    const target = new THREE.Vector3(base.x + swayX, base.y + swayY, base.z);
+
+    camera.position.lerp(target, 0.08);
+    camera.lookAt(0, 1.2, 0);
+  }
+
+  // spin jumbotron slowly only when visible (results phase)
+  if (jumbotronGroup && jumbotronGroup.visible) {
+    jumbotronGroup.rotation.y += 0.0035;
   }
 
   renderer.render(scene, camera);
