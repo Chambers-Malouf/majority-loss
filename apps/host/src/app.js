@@ -2,7 +2,7 @@
 // ================ IMPORTS & SOCKET ==================
 // ===================================================
 import { io } from "socket.io-client";
-import { initScene, updateSoloTablet } from "./scene.js";
+import { initScene, updatePlayerTablet } from "./scene.js";
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;      // e.g. wss://minority-mayhem.onrender.com
 const HTTP_BASE = SOCKET_URL
@@ -190,7 +190,7 @@ async function soloNextRound() {
     if (!r.ok) throw new Error("HTTP " + r.status);
     qData = await r.json();
   } catch (err) {
-    updateSoloTablet({
+    updatePlayerTablet({
       title: `ROUND ${soloRoundNo}`,
       question: "Could not fetch question — check backend logs.",
       options: [],
@@ -205,7 +205,7 @@ async function soloNextRound() {
   let playerPick = null;
 
   // show on tablet + clickable HUD buttons
-  updateSoloTablet({
+  updatePlayerTablet({
     title: `ROUND ${soloRoundNo}`,
     question: question.text,
     options: options.map(o => o.text),
@@ -233,7 +233,7 @@ async function soloNextRound() {
 
     // log “thinking” line as they arrive
     aiLines.push(`${ai.name}: ${thinking || "..."}`);
-    updateSoloTablet({
+    updatePlayerTablet({
       title: `ROUND ${soloRoundNo}`,
       question: question.text,
       options: options.map(o => o.text),
@@ -252,7 +252,7 @@ async function soloNextRound() {
   // start a timer loop that refreshes the tablet every second
   const tInt = setInterval(() => {
     timer -= 1;
-    updateSoloTablet({
+    updatePlayerTablet({
       title: `ROUND ${soloRoundNo}`,
       question: question.text,
       options: options.map(o => o.text),
@@ -313,7 +313,7 @@ async function soloNextRound() {
   const winnersText = winners.length
     ? `Winner(s): ${winners.join(", ")}`
     : "Tie / No winner";
-  updateSoloTablet({
+  updatePlayerTablet({
     title: `ROUND ${soloRoundNo} — RESULTS`,
     question: question.text,
     options: options.map(o => o.text),
@@ -358,7 +358,7 @@ function soloGameOver() {
     .sort((a, b) => b.points - a.points);
 
   const lines = board.map((p) => `${p.name}: ${p.points} point${p.points === 1 ? "" : "s"}`);
-  updateSoloTablet({
+  updatePlayerTablet({
     title: "🏁 GAME OVER — SOLO",
     question: "Final leaderboard",
     options: [],
