@@ -2,7 +2,12 @@
 // ================ IMPORTS & SOCKET ==================
 // ===================================================
 import { io } from "socket.io-client";
-import { initScene, updatePlayerTablet } from "./scene.js";
+import {
+  initScene,
+  updatePlayerTablet,
+  triggerAIDialogue,        // 🟡 added
+  updateJumbotronResults,   // 🟡 added
+} from "./scene.js";
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;      // e.g. wss://minority-mayhem.onrender.com
 const HTTP_BASE = SOCKET_URL
@@ -113,7 +118,6 @@ function startSoloMode() {
   myId = "local-player";
   roomId = "SOLO-" + Math.floor(Math.random() * 99999);
 
-  // pass AI names so scene can label seats
   const aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"];
   initScene(aiNames);
 
@@ -146,10 +150,8 @@ function mountSoloHUD() {
       backdrop-filter: blur(2px);
     `
   });
-  // buttons get filled per-round
   hud.appendChild(panel);
 
-  // results toast
   const toast = el("div", {
     id: "solo-toast",
     style: `
@@ -163,11 +165,11 @@ function mountSoloHUD() {
 
   document.body.appendChild(hud);
 }
+
 function soloSetButtons(options, onPick) {
   const panel = document.getElementById("solo-panel");
   if (!panel) return;
   panel.innerHTML = "";
-
   options.forEach((opt) => {
     const b = el("button", {
       class: "btn",
@@ -204,7 +206,6 @@ async function soloNextRound() {
   const options = (qData?.options || []).map(o => ({ id: o.id, text: o.text }));
   let playerPick = null;
 
-  // show on tablet + clickable HUD buttons
   updatePlayerTablet({
     title: `ROUND ${soloRoundNo}`,
     question: question.text,
@@ -214,7 +215,6 @@ async function soloNextRound() {
   });
   soloSetButtons(options, (opt) => {
     playerPick = opt;
-    // quick visual confirmation toast
     const toast = document.getElementById("solo-toast");
     if (toast) {
       toast.textContent = `You picked: ${opt.text}`;
@@ -223,15 +223,14 @@ async function soloNextRound() {
     }
   });
 
-  // kick off AI decisions with staggered delays
-  const aiPromises = AI_LIST.map(async (ai, idx) => {
-    // small deliberate delay to feel alive
+  // 🟡 Added: trigger floating dialogue + improved AI handling
+  const aiPromises = AI_LIST.map(async (ai) => {
     await wait(800 + Math.random() * 1500);
-
     const { thinking, choiceId, choiceText } =
       await soloGetAIVote(ai.name, ai.personality, question, options);
 
-    // log “thinking” line as they arrive
+    triggerAIDialogue(ai.name, thinking || "..."); // 🟡 floating dialogue bubble
+
     aiLines.push(`${ai.name}: ${thinking || "..."}`);
     updatePlayerTablet({
       title: `ROUND ${soloRoundNo}`,
@@ -249,7 +248,6 @@ async function soloNextRound() {
     };
   });
 
-  // start a timer loop that refreshes the tablet every second
   const tInt = setInterval(() => {
     timer -= 1;
     updatePlayerTablet({
@@ -259,37 +257,26 @@ async function soloNextRound() {
       timer,
       aiLines
     });
-    if (timer <= 0) {
-      clearInterval(tInt);
-    }
+    if (timer <= 0) clearInterval(tInt);
   }, 1000);
 
-  // wait until the timer ends
   await wait(SOLO_TIMER * 1000);
-
-  // close the round: collect AI votes and player's vote
   const aiVotes = await Promise.all(aiPromises);
 
-  // if player never chose, pick randomly (MVP)
   if (!playerPick) {
     playerPick = options[Math.floor(Math.random() * options.length)];
   }
 
-  // tally
   const countsMap = new Map(options.map(o => [o.id, 0]));
   const votes = [];
-
-  // player
   countsMap.set(playerPick.id, (countsMap.get(playerPick.id) || 0) + 1);
   votes.push({ name: myName, optionId: playerPick.id });
 
-  // AIs
   for (const v of aiVotes) {
     countsMap.set(v.option.id, (countsMap.get(v.option.id) || 0) + 1);
     votes.push({ name: v.name, optionId: v.option.id });
   }
 
-  // compute minority winner (among options with >0 votes)
   const counts = options.map(o => ({
     optionId: o.id,
     text: o.text,
@@ -303,56 +290,24 @@ async function soloNextRound() {
     if (minority.length === 1) winningOptionId = minority[0].optionId;
   }
 
-  // award points to everyone who picked the minority option
   const winners = votes.filter(v => v.optionId === winningOptionId).map(v => v.name);
   for (const name of winners) {
     soloScore.set(name, (soloScore.get(name) || 0) + 1);
   }
 
-  // show results on the tablet
-  const winnersText = winners.length
-    ? `Winner(s): ${winners.join(", ")}`
-    : "Tie / No winner";
-  updatePlayerTablet({
-    title: `ROUND ${soloRoundNo} — RESULTS`,
-    question: question.text,
-    options: options.map(o => o.text),
-    timer: 0,
-    aiLines,
-    results: { counts, winnersText }
-  });
+  const winnersText = winners.length ? `Winner(s): ${winners.join(", ")}` : "Tie / No winner";
 
-  // wait a moment then advance
-  await wait(3000);
+  // 🟡 Added: jumbotron results instead of tablet-only
+  updateJumbotronResults({ counts, winnersText }, soloRoundNo);
+
+  await wait(5000); // 🟡 show results for 5s
   soloNextRound();
 }
 
-async function soloGetAIVote(aiName, aiPersonality, question, options) {
-  try {
-    const r = await fetch(`${HTTP_BASE}/api/ai-round`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        aiName,
-        aiPersonality,
-        question,
-        options,
-        roomId: null     // not using sockets in Solo
-      })
-    });
-    const data = await r.json();
-    return {
-      thinking: data?.thinking || "",
-      choiceId: data?.choiceId ?? null,
-      choiceText: data?.choiceText ?? null
-    };
-  } catch (e) {
-    return { thinking: "…", choiceId: null, choiceText: null };
-  }
-}
-
+// ===================================================
+// ================= GAME OVER =======================
+// ===================================================
 function soloGameOver() {
-  // build leaderboard
   const board = Array.from(soloScore.entries())
     .map(([name, points]) => ({ name, points }))
     .sort((a, b) => b.points - a.points);
@@ -366,11 +321,9 @@ function soloGameOver() {
     aiLines: lines
   });
 
-  // remove HUD buttons
   const panel = document.getElementById("solo-panel");
   if (panel) panel.innerHTML = "";
 }
-
 // ===================================================
 // ================= MULTIPLAYER MODE ================
 // ===================================================

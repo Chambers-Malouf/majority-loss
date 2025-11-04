@@ -8,7 +8,7 @@ let scene, camera, renderer, controls;
 let tabletMesh, tabletTexture, ctx;
 let jumbotron, jumbotronTexture, jumboCtx;
 
-// Floating AI name-to-object and dialogue map
+// floating AI name-to-object & dialogue maps
 const playersMap = new Map();
 const aiLabels = new Map();
 
@@ -21,6 +21,7 @@ function drawTablet({
   options = [],
   timer = 0,
   aiLines = [],
+  results = null,
 }) {
   if (!ctx) return;
   const w = 1024, h = 768;
@@ -38,7 +39,7 @@ function drawTablet({
   ctx.font = "700 34px Inter";
   wrapText(question, 36, 125, 950, 42);
 
-  // === OPTIONS ===
+  // === OPTIONS (moved up) ===
   ctx.font = "600 30px Inter";
   const buttonY = 210;
   options.forEach((t, i) => {
@@ -51,9 +52,90 @@ function drawTablet({
   ctx.font = "bold 28px ui-monospace";
   ctx.fillText(`TIME: ${Math.max(0, timer)}s`, 36, 305);
 
+  // === AI LINES ===
+  let y = 345;
+  ctx.font = "600 26px Inter";
+  aiLines.slice(-6).forEach(line => {
+    ctx.fillStyle = "#94a3b8";
+    wrapText(line, 36, y, 950, 30);
+    y += 38;
+  });
+
+  // === RESULTS (stay near bottom) ===
+  if (results) {
+    ctx.fillStyle = "#f7d046";
+    ctx.font = "700 32px ui-monospace";
+    ctx.fillText("RESULTS", 36, 550);
+    ctx.fillStyle = "#e2e8f0";
+    ctx.font = "600 28px Inter";
+    let ry = 590;
+    results.counts.forEach(c => {
+      ctx.fillText(`${c.text}: ${c.count}`, 36, ry);
+      ry += 34;
+    });
+    ctx.fillStyle = "#a7f3d0";
+    ctx.font = "700 28px ui-monospace";
+    ctx.fillText(results.winnersText, 36, ry + 10);
+  }
+
   tabletTexture.needsUpdate = true;
 }
 
+// ===================================================
+// ================== SCOREBOARD =====================
+// ===================================================
+function drawScoreboard(leaderboard = []) {
+  if (!jumboCtx) return;
+  const w = 512, h = 256;
+  jumboCtx.clearRect(0, 0, w, h);
+  jumboCtx.fillStyle = "#000";
+  jumboCtx.fillRect(0, 0, w, h);
+
+  jumboCtx.fillStyle = "#f7d046";
+  jumboCtx.font = "bold 34px ui-monospace";
+  jumboCtx.fillText("SCOREBOARD", 120, 50);
+
+  jumboCtx.fillStyle = "#ffffff";
+  jumboCtx.font = "600 26px Inter";
+  leaderboard.forEach((p, i) => {
+    jumboCtx.fillText(`${p.name}: ${p.points}`, 100, 100 + i * 30);
+  });
+
+  jumbotronTexture.needsUpdate = true;
+}
+
+// ===================================================
+// =============== JUMBOTRON RESULTS =================
+// ===================================================
+function drawJumbotronResults(results, roundNo) {
+  if (!jumboCtx) return;
+  const w = 512, h = 256;
+  jumboCtx.clearRect(0, 0, w, h);
+  jumboCtx.fillStyle = "#000";
+  jumboCtx.fillRect(0, 0, w, h);
+
+  jumboCtx.fillStyle = "#f7d046";
+  jumboCtx.font = "bold 36px ui-monospace";
+  jumboCtx.fillText(`ROUND ${roundNo} RESULTS`, 50, 60);
+
+  jumboCtx.fillStyle = "#ffffff";
+  jumboCtx.font = "600 26px Inter";
+  let y = 110;
+  results.counts.forEach(c => {
+    jumboCtx.fillText(`${c.text}: ${c.count}`, 70, y);
+    y += 32;
+  });
+
+  jumboCtx.fillStyle = "#a7f3d0";
+  jumboCtx.font = "700 28px ui-monospace";
+  jumboCtx.fillText(results.winnersText, 70, y + 30);
+
+  jumbotronTexture.needsUpdate = true;
+}
+
+// ===================================================
+// =============== TEXT / UI HELPERS =================
+// ===================================================
 function wrapText(text, x, y, maxWidth, lh) {
   const words = String(text || "").split(" ");
   let line = "";
@@ -81,35 +163,6 @@ function button(ctx, x, y, w, h, fg, bg, label) {
 }
 
 // ===================================================
-// ================= JUMBOTRON DRAW ==================
-// ===================================================
-function drawJumbotronResults(results, roundNo) {
-  if (!jumboCtx) return;
-  const w = 512, h = 256;
-  jumboCtx.clearRect(0, 0, w, h);
-  jumboCtx.fillStyle = "#000";
-  jumboCtx.fillRect(0, 0, w, h);
-
-  jumboCtx.fillStyle = "#f7d046";
-  jumboCtx.font = "bold 38px ui-monospace";
-  jumboCtx.fillText(`ROUND ${roundNo} RESULTS`, 60, 60);
-
-  jumboCtx.fillStyle = "#ffffff";
-  jumboCtx.font = "600 26px Inter";
-  let y = 110;
-  results.counts.forEach(c => {
-    jumboCtx.fillText(`${c.text}: ${c.count}`, 70, y);
-    y += 32;
-  });
-
-  jumboCtx.fillStyle = "#a7f3d0";
-  jumboCtx.font = "700 28px ui-monospace";
-  jumboCtx.fillText(results.winnersText, 70, y + 30);
-
-  jumbotronTexture.needsUpdate = true;
-}
-
-// ===================================================
 // =============== AI DIALOGUE LABELS ================
 // ===================================================
 function showAIDialogue(name, text) {
@@ -131,10 +184,7 @@ function showAIDialogue(name, text) {
   label.style.opacity = "1";
   label.style.transition = "opacity 1s";
 
-  // fade out after 4s
-  setTimeout(() => {
-    label.style.opacity = "0";
-  }, 4000);
+  setTimeout(() => (label.style.opacity = "0"), 4000);
 }
 
 // ===================================================
@@ -150,6 +200,7 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
   renderer.domElement.id = "solo-bg";
   document.body.appendChild(renderer.domElement);
 
+  // Player camera behind table looking in
   camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
   camera.position.set(0, 1.6, -3.8);
   camera.lookAt(0, 1.2, 0);
@@ -170,6 +221,7 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
   fill.position.set(0, 2, 0);
   scene.add(fill);
 
+  // Floor / table
   const floor = new THREE.Mesh(
     new THREE.CircleGeometry(7, 64),
     new THREE.MeshStandardMaterial({ color: 0x111111 })
@@ -184,6 +236,7 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
   table.position.y = 0.9;
   scene.add(table);
 
+  // Chairs + bodies
   const radius = 3.4;
   const chairGeo = new THREE.BoxGeometry(0.7, 0.9, 0.7);
   const bodyGeo = new THREE.SphereGeometry(0.35, 16, 16);
@@ -199,6 +252,7 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
     scene.add(body);
     playersMap.set(name, body);
 
+    // nameplate
     const plateCanvas = document.createElement("canvas");
     plateCanvas.width = 256; plateCanvas.height = 64;
     const pctx = plateCanvas.getContext("2d");
@@ -221,7 +275,7 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
     scene.add(plate);
   });
 
-  // Player Tablet
+  // Tablet
   const canvas = document.createElement("canvas");
   canvas.width = 1024; canvas.height = 768;
   ctx = canvas.getContext("2d");
@@ -269,15 +323,16 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
 // ================= PUBLIC API ======================
 // ===================================================
 export function updatePlayerTablet(payload) { drawTablet(payload || {}); }
+export function updateScoreboard(lb) { drawScoreboard(lb || []); }
 export function updateJumbotronResults(results, roundNo) { drawJumbotronResults(results, roundNo); }
-export function showResultsMode(on) { if (jumbotron) jumbotron.visible = on; }
 export function triggerAIDialogue(name, text) { showAIDialogue(name, text); }
+export function showResultsMode(on) { if (jumbotron) jumbotron.visible = on; }
 
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
 
-  // Update floating dialogue label positions
+  // keep dialogue over each AI’s head
   for (const [name, div] of aiLabels.entries()) {
     const obj = playersMap?.get(name);
     if (!obj) continue;
@@ -293,4 +348,5 @@ function animate() {
   if (jumbotron && jumbotron.visible) jumbotron.rotation.y += 0.002;
   renderer.render(scene, camera);
 }
+
 export const updateSoloTablet = updatePlayerTablet;
