@@ -28,43 +28,43 @@ function drawTablet({
   // === TITLE ===
   ctx.fillStyle = "#f7d046";
   ctx.font = "bold 42px ui-monospace";
-  ctx.fillText(title, 36, 70);
+  ctx.fillText(title, 36, 65);
 
   // === QUESTION ===
   ctx.fillStyle = "#ffffff";
   ctx.font = "700 34px Inter";
-  wrapText(question, 36, 135, 950, 42);
+  wrapText(question, 36, 125, 950, 42);
 
-  // === OPTIONS ===
+  // === OPTIONS (moved up sharply) ===
   ctx.font = "600 30px Inter";
-  const buttonY = 285; // moved up from 330
+  const buttonY = 210; // ⬆️ was 285
   options.forEach((t, i) => {
     const x = 36 + i * 250;
     button(ctx, x, buttonY, 220, 60, "#f7d046", "#1b1b1b", t);
   });
 
-  // === TIMER ===
+  // === TIMER (moved up) ===
   ctx.fillStyle = "#c6c6c6";
   ctx.font = "bold 28px ui-monospace";
-  ctx.fillText(`TIME: ${Math.max(0, timer)}s`, 36, 375); // moved up from 430
+  ctx.fillText(`TIME: ${Math.max(0, timer)}s`, 36, 305); // ⬆️ was 375
 
-  // === AI LINES ===
-  let y = 420; // moved up from 480
+  // === AI LINES (start much higher) ===
+  let y = 345; // ⬆️ was 420
   ctx.font = "600 26px Inter";
   aiLines.slice(-6).forEach(line => {
     ctx.fillStyle = "#94a3b8";
     wrapText(line, 36, y, 950, 30);
-    y += 42;
+    y += 38;
   });
 
-  // === RESULTS (unchanged) ===
+  // === RESULTS (keep lower) ===
   if (results) {
     ctx.fillStyle = "#f7d046";
     ctx.font = "700 32px ui-monospace";
-    ctx.fillText("RESULTS", 36, 620);
+    ctx.fillText("RESULTS", 36, 550);
     ctx.fillStyle = "#e2e8f0";
     ctx.font = "600 28px Inter";
-    let ry = 660;
+    let ry = 590;
     results.counts.forEach(c => {
       ctx.fillText(`${c.text}: ${c.count}`, 36, ry);
       ry += 34;
@@ -76,6 +76,7 @@ function drawTablet({
 
   tabletTexture.needsUpdate = true;
 }
+
 
 
 function drawScoreboard(leaderboard = []) {
