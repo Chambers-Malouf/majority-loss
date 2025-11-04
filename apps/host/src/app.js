@@ -107,25 +107,22 @@ function renderHome() {
 // ===================================================
 function startSoloMode() {
   screen = "solo";
-  app.innerHTML = "";      // hide 2D UI; the “screen” lives on the 3D tablet
+  app.innerHTML = "";
   isHost = false;
   myName = "You";
   myId = "local-player";
   roomId = "SOLO-" + Math.floor(Math.random() * 99999);
 
-  // scene
-  initScene();
+  // pass AI names so scene can label seats
+  const aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"];
+  initScene(aiNames);
 
-  // init score
   soloScore.clear();
   soloScore.set(myName, 0);
-  for (const ai of AI_LIST) soloScore.set(ai.name, 0);
+  for (const name of aiNames.slice(1)) soloScore.set(name, 0);
   soloRoundNo = 0;
 
-  // HUD for input (transparent; clicks only)
   mountSoloHUD();
-
-  // go
   soloNextRound();
 }
 
@@ -166,7 +163,6 @@ function mountSoloHUD() {
 
   document.body.appendChild(hud);
 }
-
 function soloSetButtons(options, onPick) {
   const panel = document.getElementById("solo-panel");
   if (!panel) return;
@@ -184,22 +180,21 @@ function soloSetButtons(options, onPick) {
 
 async function soloNextRound() {
   if (soloRoundNo >= SOLO_MAX_ROUNDS) return soloGameOver();
-
   soloRoundNo += 1;
   let timer = SOLO_TIMER;
   const aiLines = [];
 
-  // fetch random question from your backend
   let qData;
   try {
     const r = await fetch(`${HTTP_BASE}/api/solo/question`);
+    if (!r.ok) throw new Error("HTTP " + r.status);
     qData = await r.json();
-  } catch (e) {
+  } catch (err) {
     updateSoloTablet({
       title: `ROUND ${soloRoundNo}`,
-      question: "Failed to load question. Check backend / CORS.",
+      question: "Could not fetch question — check backend logs.",
       options: [],
-      timer: 0,
+      timer,
       aiLines
     });
     return;
