@@ -84,7 +84,7 @@ function drawScoreboard(leaderboard) {
 
   jumboCtx.fillStyle = "#f7d046";
   jumboCtx.font = "bold 36px ui-monospace";
-  jumboCtx.fillText("SCOREBOARD", 120, 60);
+  jumboCtx.fillText("SCOREBOARD", 110, 60);
 
   jumboCtx.fillStyle = "#ffffff";
   jumboCtx.font = "600 28px Inter";
@@ -135,9 +135,6 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.domElement.id = "solo-bg";
-  Object.assign(renderer.domElement.style, {
-    position: "fixed", top: 0, left: 0, width: "100%", height: "100%", zIndex: 0,
-  });
   document.body.appendChild(renderer.domElement);
 
   // Camera
@@ -145,7 +142,7 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
   camera.position.set(0, 1.6, 2.2);
   camera.lookAt(0, 1.2, 0);
 
-  // Controls (look-around only)
+  // Controls (look-around)
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enablePan = false;
   controls.enableZoom = false;
@@ -153,41 +150,37 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
   controls.maxPolarAngle = Math.PI / 2;
   controls.target.set(0, 1.2, 0);
 
-  // Lighting
-  const ambient = new THREE.AmbientLight(0x404060, 0.8);
-  scene.add(ambient);
-  const topLight = new THREE.SpotLight(0xeeeeff, 1.2, 15, Math.PI / 4, 0.3);
-  topLight.position.set(0, 6, 0);
-  scene.add(topLight);
-  const rimLight = new THREE.PointLight(0xffc860, 0.3, 10);
-  rimLight.position.set(0, 2, 4);
-  scene.add(rimLight);
+  // Lighting — boosted
+  scene.add(new THREE.AmbientLight(0x7070a0, 1.2));
+  const spot = new THREE.SpotLight(0xffffff, 1.6, 20, Math.PI / 3, 0.3);
+  spot.position.set(0, 6, 0);
+  scene.add(spot);
 
-  // Floor and table
-  const floor = new THREE.Mesh(new THREE.CircleGeometry(7, 64), new THREE.MeshStandardMaterial({ color: 0x0f0f0f }));
+  const tableLight = new THREE.PointLight(0xffd580, 0.6, 10);
+  tableLight.position.set(0, 2.2, 0);
+  scene.add(tableLight);
+
+  // Floor + Table
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(7, 64), new THREE.MeshStandardMaterial({ color: 0x111111 }));
   floor.rotation.x = -Math.PI / 2;
   scene.add(floor);
 
-  const table = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 0.25, 40), new THREE.MeshStandardMaterial({ color: 0x111111 }));
+  const table = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.4, 0.25, 40), new THREE.MeshStandardMaterial({ color: 0x151515 }));
   table.position.y = 0.9;
   scene.add(table);
 
-  // Seats and nameplates (AI only visible)
-  seats = [];
-  nameplates = [];
+  // Seats + Nameplates
+  const radius = 3.4;
   const chairGeo = new THREE.BoxGeometry(0.7, 0.9, 0.7);
   const bodyGeo = new THREE.SphereGeometry(0.35, 16, 16);
-  const radius = 3.4;
-  const visibleAIs = aiNames.slice(1); // exclude "You"
+  const visibleAIs = aiNames.slice(1);
 
   visibleAIs.forEach((name, i) => {
-    const a = THREE.MathUtils.degToRad(-60 + (i * 40)); // spread in front
-    const chairMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
-    const chair = new THREE.Mesh(chairGeo, chairMat);
+    const a = THREE.MathUtils.degToRad(-60 + (i * 40));
+    const chair = new THREE.Mesh(chairGeo, new THREE.MeshStandardMaterial({ color: 0x222222 }));
     chair.position.set(Math.sin(a) * radius, 0.45, Math.cos(a) * radius);
     chair.lookAt(0, 0.45, 0);
     scene.add(chair);
-    seats.push(chair);
 
     const body = new THREE.Mesh(bodyGeo, new THREE.MeshStandardMaterial({ color: 0x202024 }));
     body.position.set(chair.position.x, 1.1, chair.position.z);
@@ -201,39 +194,49 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
     pctx.textAlign = "center"; pctx.textBaseline = "middle";
     pctx.fillText(name, 128, 32);
     const plateTex = new THREE.CanvasTexture(plateCanvas);
-    const plateMat = new THREE.MeshBasicMaterial({ map: plateTex, transparent: true });
-    const plate = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.3), plateMat);
+    const plate = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.3),
+      new THREE.MeshBasicMaterial({ map: plateTex, transparent: true, side: THREE.DoubleSide }));
     plate.position.set(chair.position.x, 1.7, chair.position.z);
     plate.lookAt(0, 1.2, 0);
     scene.add(plate);
-    nameplates.push(plate);
   });
 
-  // Player tablet (front)
+  // Player Tablet — rotated toward player
   const canvas = document.createElement("canvas");
   canvas.width = 1024; canvas.height = 768;
   ctx = canvas.getContext("2d");
   tabletTexture = new THREE.CanvasTexture(canvas);
-  const tabletMat = new THREE.MeshBasicMaterial({ map: tabletTexture });
+  const tabletMat = new THREE.MeshBasicMaterial({ map: tabletTexture, side: THREE.DoubleSide });
   const tabletGeo = new THREE.PlaneGeometry(1.9, 1.45);
   tabletMesh = new THREE.Mesh(tabletGeo, tabletMat);
-  tabletMesh.position.set(0, 1.1, 1.0);
-  tabletMesh.rotation.x = -0.5; // reclined
+  tabletMesh.position.set(0, 1.05, 1.15);
+  tabletMesh.rotation.x = -0.3; // slightly leaning back
   scene.add(tabletMesh);
-  drawTablet({ title: "MAJORITY LOSS — SOLO", question: "Loading...", options: [], timer: 0, aiLines: [] });
+  drawTablet({ question: "Loading..." });
 
-  // Jumbotron (hanging scoreboard)
+  // Jumbotron — lowered & emissive
   const jumboCanvas = document.createElement("canvas");
   jumboCanvas.width = 512; jumboCanvas.height = 512;
   jumboCtx = jumboCanvas.getContext("2d");
   jumbotronTexture = new THREE.CanvasTexture(jumboCanvas);
-  const jumboMat = new THREE.MeshStandardMaterial({ map: jumbotronTexture, emissive: 0x224488, emissiveIntensity: 0.3 });
-  jumbotron = new THREE.Mesh(new THREE.BoxGeometry(2.5, 1.2, 2.5), jumboMat);
-  jumbotron.position.set(0, 4.5, 0);
+  const jumboMat = new THREE.MeshStandardMaterial({
+    map: jumbotronTexture,
+    emissive: 0x3355ff,
+    emissiveIntensity: 0.5,
+    side: THREE.DoubleSide,
+  });
+  jumbotron = new THREE.Mesh(new THREE.BoxGeometry(3, 1.5, 3), jumboMat);
+  jumbotron.position.set(0, 3.2, 0);
   scene.add(jumbotron);
 
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.2), new THREE.MeshStandardMaterial({ color: 0x222222 }));
-  pole.position.set(0, 5.2, 0);
+  // Light for jumbotron
+  const jumboLight = new THREE.PointLight(0x6688ff, 0.6, 8);
+  jumboLight.position.set(0, 3.2, 0);
+  scene.add(jumboLight);
+
+  // Pole
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.0), new THREE.MeshStandardMaterial({ color: 0x333333 }));
+  pole.position.set(0, 4.0, 0);
   scene.add(pole);
 
   window.addEventListener("resize", () => {
@@ -262,12 +265,10 @@ export function showResultsMode(on) {
 
 function animate() {
   requestAnimationFrame(animate);
-  if (jumbotron && jumbotron.visible) {
-    jumbotron.rotation.y += 0.002; // slow rotation
-  }
+  if (jumbotron && jumbotron.visible) jumbotron.rotation.y += 0.002;
   controls.update();
   renderer.render(scene, camera);
 }
 
-// optional alias for legacy compatibility
+// compatibility alias
 export const updateSoloTablet = updatePlayerTablet;
