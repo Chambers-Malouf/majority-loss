@@ -229,7 +229,7 @@ async function soloNextRound() {
     const { thinking, choiceId, choiceText } =
       await soloGetAIVote(ai.name, ai.personality, question, options);
 
-    triggerAIDialogue(ai.name, thinking || "..."); // 🟡 floating dialogue bubble
+    triggerAIDialogue(ai.name, thinking && thinking.trim().length ? thinking : "Hmm..."); 
 
     aiLines.push(`${ai.name}: ${thinking || "..."}`);
     updatePlayerTablet({
@@ -298,10 +298,25 @@ async function soloNextRound() {
   const winnersText = winners.length ? `Winner(s): ${winners.join(", ")}` : "Tie / No winner";
 
   // 🟡 Added: jumbotron results instead of tablet-only
-  updateJumbotronResults({ counts, winnersText }, soloRoundNo);
+  // 🟡 SAFER: ensure results object is valid and update tablet too
+  const resultsPayload = { counts, winnersText };
+  updatePlayerTablet({
+    title: `ROUND ${soloRoundNo} — RESULTS`,
+    question: question.text,
+    options: options.map(o => o.text),
+    timer: 0,
+    aiLines,
+    results: resultsPayload
+  });
 
-  await wait(5000); // 🟡 show results for 5s
+  // update jumbotron at same time
+  if (typeof updateJumbotronResults === "function") {
+    updateJumbotronResults(resultsPayload, soloRoundNo);
+  }
+
+  await wait(4000);
   soloNextRound();
+
 }
 
 // ===================================================
