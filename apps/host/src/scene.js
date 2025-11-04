@@ -193,18 +193,28 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
     scene.add(plate);
   });
 
-  // Tablet directly in front of camera
+  // Player Tablet — smaller, flipped, correctly angled
   const canvas = document.createElement("canvas");
   canvas.width = 1024; canvas.height = 768;
   ctx = canvas.getContext("2d");
   tabletTexture = new THREE.CanvasTexture(canvas);
-  const tabletMat = new THREE.MeshBasicMaterial({ map: tabletTexture, side: THREE.DoubleSide });
-  const tabletGeo = new THREE.PlaneGeometry(1.9, 1.45);
+
+  const tabletMat = new THREE.MeshBasicMaterial({
+    map: tabletTexture,
+    side: THREE.DoubleSide,
+  });
+  const tabletGeo = new THREE.PlaneGeometry(0.95, 0.72); // 50% smaller
   tabletMesh = new THREE.Mesh(tabletGeo, tabletMat);
-  tabletMesh.position.set(0, 1.1, -2.2);
-  tabletMesh.rotation.x = 0.25; // tilt slightly away from player
+
+  // Raise slightly above table and push slightly forward
+  tabletMesh.position.set(0, 1.2, -2.3);
+
+  // Flip around Y so we see the correct side, tilt back slightly
+  tabletMesh.rotation.set(0.18, Math.PI, 0);
+
   scene.add(tabletMesh);
   drawTablet({ question: "Loading..." });
+
 
   // Smaller jumbotron now centered above table
   const jumboCanvas = document.createElement("canvas");
