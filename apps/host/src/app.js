@@ -346,6 +346,41 @@ async function soloNextRound() {
   // Pause briefly then next round
   await wait(4000);
   soloNextRound();
+  // ===================================================
+  // =============== AI FETCH HELPER ===================
+  // ===================================================
+  async function soloGetAIVote(aiName, aiPersonality, question, options) {
+    try {
+      const res = await fetch(`${HTTP_BASE}/api/ai-round`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          aiName,
+          aiPersonality,
+          question,
+          options,
+          roomId: null // not using sockets in solo mode
+        })
+      });
+
+      if (!res.ok) {
+        console.warn(`AI fetch failed for ${aiName}: HTTP ${res.status}`);
+        return { thinking: "Hmm...", choiceId: null, choiceText: null };
+      }
+
+      const data = await res.json();
+      console.log("🤖 AI response:", aiName, data); // for debugging
+
+      return {
+        thinking: data?.thinking || "Hmm...",
+        choiceId: data?.choiceId ?? null,
+        choiceText: data?.choiceText ?? null
+      };
+    } catch (err) {
+      console.error("❌ soloGetAIVote error:", aiName, err);
+      return { thinking: "Hmm...", choiceId: null, choiceText: null };
+    }
+  }
 }
 
 
