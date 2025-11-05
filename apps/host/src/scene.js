@@ -105,57 +105,58 @@ function drawJumbotronResults(results, roundNo) {
   if (!jumboCtx) return;
   const w = 512, h = 256;
   jumboCtx.clearRect(0, 0, w, h);
-  jumboCtx.fillStyle = "#000";
+
+  // dark gold-tinted background to improve contrast
+  jumboCtx.fillStyle = "rgba(30, 25, 5, 0.85)";
   jumboCtx.fillRect(0, 0, w, h);
 
-  jumboCtx.fillStyle = "#f7d046";
-  jumboCtx.font = "bold 36px ui-monospace";
-  jumboCtx.fillText(`ROUND ${roundNo} RESULTS`, 50, 60);
+  // title
+  jumboCtx.fillStyle = "#f7d046"; // gold accent
+  jumboCtx.font = "bold 34px ui-monospace";
+  jumboCtx.fillText(`ROUND ${roundNo} RESULTS`, 60, 60);
 
-  jumboCtx.fillStyle = "#ffffff";
+  // options + counts
+  jumboCtx.fillStyle = "#e8e8e8";
   jumboCtx.font = "600 26px Inter";
   let y = 110;
   results.counts.forEach(c => {
-    jumboCtx.fillText(`${c.text}: ${c.count}`, 70, y);
+    jumboCtx.fillText(`${c.text}: ${c.count}`, 80, y);
     y += 32;
   });
 
+  // winners line in a softer green
   jumboCtx.fillStyle = "#a7f3d0";
   jumboCtx.font = "700 28px ui-monospace";
-  jumboCtx.fillText(results.winnersText, 70, y + 30);
+  jumboCtx.fillText(results.winnersText, 80, y + 40);
 
   jumbotronTexture.needsUpdate = true;
 }
+
 // ===================================================
 // =============== DRAW JUMBOTRON ====================
 // ===================================================
 function drawJumbotronIdle() {
   if (!jumboCtx) return;
   const w = 512, h = 256;
-
-  // background panel
   jumboCtx.clearRect(0, 0, w, h);
-  jumboCtx.fillStyle = "#111216";
+
+  jumboCtx.fillStyle = "rgba(25, 20, 8, 0.9)";
   jumboCtx.fillRect(0, 0, w, h);
 
-  // subtle frame
-  jumboCtx.strokeStyle = "rgba(247,208,70,0.45)";
+  jumboCtx.strokeStyle = "rgba(247,208,70,0.4)";
   jumboCtx.lineWidth = 4;
   jumboCtx.strokeRect(6, 6, w - 12, h - 12);
 
-  // title
   jumboCtx.fillStyle = "#f7d046";
   jumboCtx.font = "700 34px ui-monospace";
   jumboCtx.fillText("MAJORITY LOSS", 110, 90);
 
-  // hint
-  jumboCtx.fillStyle = "#dbe2f0";
+  jumboCtx.fillStyle = "#e6e6e6";
   jumboCtx.font = "600 22px Inter";
   jumboCtx.fillText("Waiting for results…", 150, 150);
 
   jumbotronTexture.needsUpdate = true;
 }
-
 
 // ===================================================
 // =============== TEXT / UI HELPERS =================
