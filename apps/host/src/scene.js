@@ -124,6 +124,36 @@ function drawJumbotronResults(results, roundNo) {
 
   jumbotronTexture.needsUpdate = true;
 }
+// ===================================================
+// =============== DRAW JUMBOTRON ====================
+// ===================================================
+function drawJumbotronIdle() {
+  if (!jumboCtx) return;
+  const w = 512, h = 256;
+
+  // background panel
+  jumboCtx.clearRect(0, 0, w, h);
+  jumboCtx.fillStyle = "#111216";
+  jumboCtx.fillRect(0, 0, w, h);
+
+  // subtle frame
+  jumboCtx.strokeStyle = "rgba(247,208,70,0.45)";
+  jumboCtx.lineWidth = 4;
+  jumboCtx.strokeRect(6, 6, w - 12, h - 12);
+
+  // title
+  jumboCtx.fillStyle = "#f7d046";
+  jumboCtx.font = "700 34px ui-monospace";
+  jumboCtx.fillText("MAJORITY LOSS", 110, 90);
+
+  // hint
+  jumboCtx.fillStyle = "#dbe2f0";
+  jumboCtx.font = "600 22px Inter";
+  jumboCtx.fillText("Waiting for results…", 150, 150);
+
+  jumbotronTexture.needsUpdate = true;
+}
+
 
 // ===================================================
 // =============== TEXT / UI HELPERS =================
@@ -299,37 +329,40 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
   scene.add(tabletMesh);
   drawTablet({ question: "Loading..." });
 
-  // Jumbotron
-  const jumboCanvas = document.createElement("canvas");
-  jumboCanvas.width = 512; jumboCanvas.height = 256;
-  jumboCtx = jumboCanvas.getContext("2d");
-  jumbotronTexture = new THREE.CanvasTexture(jumboCanvas);
-  const jumboMat = new THREE.MeshStandardMaterial({
+// Jumbotron
+const jumboCanvas = document.createElement("canvas");
+jumboCanvas.width = 512; jumboCanvas.height = 256;
+jumboCtx = jumboCanvas.getContext("2d");
+jumbotronTexture = new THREE.CanvasTexture(jumboCanvas);
+
+const jumboMat = new THREE.MeshStandardMaterial({
   map: jumbotronTexture,
   color: 0x1a1a1a,
   emissive: 0xffd34d,
-  emissiveIntensity: 0.4,
+  emissiveIntensity: 0.55,
   transparent: true,
-  opacity: 0.85,
-  roughness: 0.9,
-  metalness: 0.1,
+  opacity: 0.92,
+  roughness: 0.85,
+  metalness: 0.15,
   side: THREE.DoubleSide,
-  });
-  jumbotron = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.9, 1.8), jumboMat);
-  jumbotron.position.set(0, 2.6, 0);
-  scene.add(jumbotron);
+});
 
-  const jumboLight = new THREE.PointLight(0x6688ff, 0.5, 6);
-  jumboLight.position.set(0, 2.6, 0);
-  scene.add(jumboLight);
+jumbotron = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.9, 1.8), jumboMat);
+jumbotron.position.set(0, 2.6, 0);
+scene.add(jumbotron);
 
-  window.addEventListener("resize", () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-  });
+const jumboLight = new THREE.PointLight(0xffd34d, 0.35, 8);
+jumboLight.position.copy(jumbotron.position);
+scene.add(jumboLight);
 
-  animate();
+drawJumbotronIdle();
+
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+animate(); 
 }
 
 // ===================================================
