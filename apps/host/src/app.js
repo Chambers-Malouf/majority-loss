@@ -186,6 +186,7 @@ async function soloNextRound() {
   let timer = SOLO_TIMER;
   const aiLines = [];
 
+  // === Fetch Question ===
   let qData;
   try {
     const r = await fetch(`${HTTP_BASE}/api/solo/question`);
@@ -206,6 +207,7 @@ async function soloNextRound() {
   const options = (qData?.options || []).map(o => ({ id: o.id, text: o.text }));
   let playerPick = null;
 
+  // === Initial render ===
   updatePlayerTablet({
     title: `ROUND ${soloRoundNo}`,
     question: question.text,
@@ -213,6 +215,8 @@ async function soloNextRound() {
     timer,
     aiLines
   });
+
+  // === Player Buttons ===
   soloSetButtons(options, (opt) => {
     playerPick = opt;
     const toast = document.getElementById("solo-toast");
@@ -223,15 +227,24 @@ async function soloNextRound() {
     }
   });
 
-  // 🟡 Added: trigger floating dialogue + improved AI handling
+  // === AI Thinking / Decisions ===
   const aiPromises = AI_LIST.map(async (ai) => {
     await wait(800 + Math.random() * 1500);
-    const { thinking, choiceId, choiceText } =
-      await soloGetAIVote(ai.name, ai.personality, question, options);
+    let thinking = "…", choiceId = null, choiceText = null;
 
-    triggerAIDialogue(ai.name, thinking && thinking.trim().length ? thinking : "Hmm..."); 
+    try {
+      const res = await soloGetAIVote(ai.name, ai.personality, question, options);
+      thinking = res.thinking || "…";
+      choiceId = res.choiceId;
+      choiceText = res.choiceText;
+    } catch (err) {
+      console.warn("AI fetch failed for", ai.name, err);
+    }
 
-    aiLines.push(`${ai.name}: ${thinking || "..."}`);
+    // Always show visible floating dialogue
+    triggerAIDialogue(ai.name, thinking.trim() || "Hmm...");
+
+    aiLines.push(`${ai.name}: ${thinking}`);
     updatePlayerTablet({
       title: `ROUND ${soloRoundNo}`,
       question: question.text,
@@ -240,14 +253,15 @@ async function soloNextRound() {
       aiLines
     });
 
-    return {
-      name: ai.name,
-      option: choiceId
-        ? options.find(o => o.id === Number(choiceId)) || options.find(o => o.text === choiceText) || options[0]
-        : options[0]
-    };
+    const foundOpt =
+      options.find(o => o.id === Number(choiceId)) ||
+      options.find(o => o.text === choiceText) ||
+      options[0];
+
+    return { name: ai.name, option: foundOpt };
   });
 
+  // === Timer Countdown ===
   const tInt = setInterval(() => {
     timer -= 1;
     updatePlayerTablet({
@@ -261,27 +275,35 @@ async function soloNextRound() {
   }, 1000);
 
   await wait(SOLO_TIMER * 1000);
-  const aiVotes = await Promise.all(aiPromises);
+  const aiVotes = await Promise.all(aiPromises).catch(err => {
+    console.warn("AI promise failure:", err);
+    return [];
+  });
 
+  // === Player Default Pick ===
   if (!playerPick) {
     playerPick = options[Math.floor(Math.random() * options.length)];
   }
 
+  // === Vote Counting ===
   const countsMap = new Map(options.map(o => [o.id, 0]));
   const votes = [];
   countsMap.set(playerPick.id, (countsMap.get(playerPick.id) || 0) + 1);
   votes.push({ name: myName, optionId: playerPick.id });
 
   for (const v of aiVotes) {
+    if (!v?.option) continue;
     countsMap.set(v.option.id, (countsMap.get(v.option.id) || 0) + 1);
     votes.push({ name: v.name, optionId: v.option.id });
   }
 
+  // === Determine Winner (Minority Option) ===
   const counts = options.map(o => ({
     optionId: o.id,
     text: o.text,
     count: countsMap.get(o.id) || 0
   }));
+
   const nonzero = counts.filter(c => c.count > 0);
   let winningOptionId = null;
   if (nonzero.length > 0) {
@@ -290,16 +312,16 @@ async function soloNextRound() {
     if (minority.length === 1) winningOptionId = minority[0].optionId;
   }
 
+  // === Award Points ===
   const winners = votes.filter(v => v.optionId === winningOptionId).map(v => v.name);
   for (const name of winners) {
     soloScore.set(name, (soloScore.get(name) || 0) + 1);
   }
 
   const winnersText = winners.length ? `Winner(s): ${winners.join(", ")}` : "Tie / No winner";
-
-  // 🟡 Added: jumbotron results instead of tablet-only
-  // 🟡 SAFER: ensure results object is valid and update tablet too
   const resultsPayload = { counts, winnersText };
+
+  // === Update Tablet + Jumbotron ===
   updatePlayerTablet({
     title: `ROUND ${soloRoundNo} — RESULTS`,
     question: question.text,
@@ -309,15 +331,23 @@ async function soloNextRound() {
     results: resultsPayload
   });
 
-  // update jumbotron at same time
   if (typeof updateJumbotronResults === "function") {
     updateJumbotronResults(resultsPayload, soloRoundNo);
   }
 
+  // Safety redraw to prevent blue-screen bug
+  if (resultsPayload?.counts?.length) {
+    console.log("Updating jumbotron results for round", soloRoundNo);
+    updateJumbotronResults(resultsPayload, soloRoundNo);
+  } else {
+    console.warn("No results data to render on jumbotron");
+  }
+
+  // Pause briefly then next round
   await wait(4000);
   soloNextRound();
-
 }
+
 
 // ===================================================
 // ================= GAME OVER =======================
