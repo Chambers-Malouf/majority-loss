@@ -106,32 +106,33 @@ function drawJumbotronResults(results, roundNo) {
   const w = 512, h = 256;
   jumboCtx.clearRect(0, 0, w, h);
 
-  // solid dark red background
-  jumboCtx.fillStyle = "#240000";
+  // solid red background
+  jumboCtx.fillStyle = "#a00000";
   jumboCtx.fillRect(0, 0, w, h);
 
-  // title
+  // bright white text with black outline for readability
   jumboCtx.fillStyle = "#ffffff";
+  jumboCtx.strokeStyle = "#000000";
+  jumboCtx.lineWidth = 3;
   jumboCtx.font = "bold 34px ui-monospace";
-  jumboCtx.textAlign = "left";
+  jumboCtx.strokeText(`ROUND ${roundNo} RESULTS`, 60, 60);
   jumboCtx.fillText(`ROUND ${roundNo} RESULTS`, 60, 60);
 
-  // counts
-  jumboCtx.fillStyle = "#f9f9f9";
   jumboCtx.font = "700 26px Inter";
   let y = 110;
   results.counts.forEach(c => {
+    jumboCtx.strokeText(`${c.text}: ${c.count}`, 80, y);
     jumboCtx.fillText(`${c.text}: ${c.count}`, 80, y);
     y += 32;
   });
 
-  // winners line — bright gold highlight
-  jumboCtx.fillStyle = "#ffd34d";
   jumboCtx.font = "900 28px ui-monospace";
+  jumboCtx.strokeText(results.winnersText, 80, y + 40);
   jumboCtx.fillText(results.winnersText, 80, y + 40);
 
   jumbotronTexture.needsUpdate = true;
 }
+
 
 
 
@@ -144,19 +145,23 @@ function drawJumbotronIdle() {
   const w = 512, h = 256;
   jumboCtx.clearRect(0, 0, w, h);
 
-  jumboCtx.fillStyle = "#240000";
+  jumboCtx.fillStyle = "#a00000";
   jumboCtx.fillRect(0, 0, w, h);
 
   jumboCtx.fillStyle = "#ffffff";
-  jumboCtx.font = "900 34px ui-monospace";
+  jumboCtx.strokeStyle = "#000000";
+  jumboCtx.lineWidth = 3;
+  jumboCtx.font = "bold 34px ui-monospace";
+  jumboCtx.strokeText("MAJORITY LOSS", 110, 90);
   jumboCtx.fillText("MAJORITY LOSS", 110, 90);
 
-  jumboCtx.fillStyle = "#ffd34d";
   jumboCtx.font = "600 22px Inter";
+  jumboCtx.strokeText("Waiting for results…", 150, 150);
   jumboCtx.fillText("Waiting for results…", 150, 150);
 
   jumbotronTexture.needsUpdate = true;
 }
+
 
 
 
@@ -335,47 +340,38 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
   scene.add(tabletMesh);
   drawTablet({ question: "Loading..." });
 
-// === JUMBOTRON (deep red cube with white glow) ===
+// === JUMBOTRON (solid red display with visible white text) ===
 const jumboCanvas = document.createElement("canvas");
 jumboCanvas.width = 512;
 jumboCanvas.height = 256;
 jumboCtx = jumboCanvas.getContext("2d");
 jumbotronTexture = new THREE.CanvasTexture(jumboCanvas);
 
-const jumboMat = new THREE.MeshStandardMaterial({
+// Unlit material: shows the text exactly as drawn
+const jumboMat = new THREE.MeshBasicMaterial({
   map: jumbotronTexture,
-  color: 0x120000,           // darker red base
-  emissive: 0x330000,        // subtle internal red
-  emissiveIntensity: 0.15,   // weaker glow (so text shows)
-  transparent: true,        
-  opacity: 0.5,
-  roughness: 0.65,
-  metalness: 0.25,
+  color: 0xffffff,     // don’t tint the texture
+  transparent: false,  // full solid surface
   side: THREE.DoubleSide,
 });
 
-
-jumbotron = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.9, 1.8), jumboMat);
+jumbotron = new THREE.Mesh(
+  new THREE.BoxGeometry(1.8, 0.9, 1.8),
+  jumboMat
+);
 jumbotron.position.set(0, 2.6, 0);
 scene.add(jumbotron);
 
-// --- Lighting tweaks ---
-const jumboSpot = new THREE.SpotLight(0xff4d4d, 0.4, 10, Math.PI / 3);
-jumboSpot.position.set(0, 5, 1);
-jumboSpot.target = jumbotron;
-scene.add(jumboSpot);
-
-const jumboHalo = new THREE.PointLight(0xff6666, 0.25, 6);
-jumboHalo.position.copy(jumbotron.position).add(new THREE.Vector3(0, 0.2, 0));
+// --- Subtle external lighting so the cube “feels” alive ---
+const jumboHalo = new THREE.PointLight(0xff4444, 0.25, 5);
+jumboHalo.position.set(0, 2.6, 0);
 scene.add(jumboHalo);
 
-const jumboAmbient = new THREE.AmbientLight(0x331111, 0.4);
+const jumboAmbient = new THREE.AmbientLight(0x330000, 0.2);
 scene.add(jumboAmbient);
 
-// draw idle screen
+// Draw idle screen
 drawJumbotronIdle();
-
-
 
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
