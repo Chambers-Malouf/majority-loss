@@ -106,17 +106,17 @@ function drawJumbotronResults(results, roundNo) {
   const w = 512, h = 256;
   jumboCtx.clearRect(0, 0, w, h);
 
-  // dark gold-tinted background to improve contrast
-  jumboCtx.fillStyle = "rgba(30, 25, 5, 0.85)";
+  // dark red background
+  jumboCtx.fillStyle = "rgba(50, 0, 0, 0.9)";
   jumboCtx.fillRect(0, 0, w, h);
 
   // title
-  jumboCtx.fillStyle = "#f7d046"; // gold accent
+  jumboCtx.fillStyle = "#ffffff";
   jumboCtx.font = "bold 34px ui-monospace";
   jumboCtx.fillText(`ROUND ${roundNo} RESULTS`, 60, 60);
 
-  // options + counts
-  jumboCtx.fillStyle = "#e8e8e8";
+  // results text
+  jumboCtx.fillStyle = "#f1f1f1";
   jumboCtx.font = "600 26px Inter";
   let y = 110;
   results.counts.forEach(c => {
@@ -124,13 +124,14 @@ function drawJumbotronResults(results, roundNo) {
     y += 32;
   });
 
-  // winners line in a softer green
-  jumboCtx.fillStyle = "#a7f3d0";
+  // winners line in light pink/white
+  jumboCtx.fillStyle = "#ffcccc";
   jumboCtx.font = "700 28px ui-monospace";
   jumboCtx.fillText(results.winnersText, 80, y + 40);
 
   jumbotronTexture.needsUpdate = true;
 }
+
 
 // ===================================================
 // =============== DRAW JUMBOTRON ====================
@@ -140,23 +141,24 @@ function drawJumbotronIdle() {
   const w = 512, h = 256;
   jumboCtx.clearRect(0, 0, w, h);
 
-  jumboCtx.fillStyle = "rgba(25, 20, 8, 0.9)";
+  jumboCtx.fillStyle = "rgba(40, 0, 0, 0.85)";
   jumboCtx.fillRect(0, 0, w, h);
 
-  jumboCtx.strokeStyle = "rgba(247,208,70,0.4)";
+  jumboCtx.strokeStyle = "rgba(255, 204, 204, 0.4)";
   jumboCtx.lineWidth = 4;
   jumboCtx.strokeRect(6, 6, w - 12, h - 12);
 
-  jumboCtx.fillStyle = "#f7d046";
+  jumboCtx.fillStyle = "#ffffff";
   jumboCtx.font = "700 34px ui-monospace";
   jumboCtx.fillText("MAJORITY LOSS", 110, 90);
 
-  jumboCtx.fillStyle = "#e6e6e6";
+  jumboCtx.fillStyle = "#ffcccc";
   jumboCtx.font = "600 22px Inter";
   jumboCtx.fillText("Waiting for results…", 150, 150);
 
   jumbotronTexture.needsUpdate = true;
 }
+
 
 // ===================================================
 // =============== TEXT / UI HELPERS =================
@@ -196,7 +198,7 @@ function showAIDialogue(name, text) {
     const div = document.createElement("div");
     div.className = "ai-dialogue";
     div.style.position = "absolute";
-    div.style.color = "#f7d046";
+    div.style.color = "#ffffffff";
     div.style.fontFamily = "Inter, sans-serif";
     div.style.fontSize = "16px";
     div.style.maxWidth = "260px";
@@ -332,22 +334,22 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
   scene.add(tabletMesh);
   drawTablet({ question: "Loading..." });
 
-// === JUMBOTRON (black cube with gold glow) ===
+// === JUMBOTRON (deep red cube with white glow) ===
 const jumboCanvas = document.createElement("canvas");
-jumboCanvas.width = 512; jumboCanvas.height = 256;
+jumboCanvas.width = 512;
+jumboCanvas.height = 256;
 jumboCtx = jumboCanvas.getContext("2d");
 jumbotronTexture = new THREE.CanvasTexture(jumboCanvas);
 
-// --- Material ---
 const jumboMat = new THREE.MeshStandardMaterial({
   map: jumbotronTexture,
-  color: 0x0d0d0d,           // dark body
-  emissive: 0xffd34d,        // gold glow
-  emissiveIntensity: 0.45,   // subtle inner light
+  color: 0x200000,           // deep red body
+  emissive: 0xff4d4d,        // soft red glow
+  emissiveIntensity: 0.35,   // gentle inner light
   transparent: true,
-  opacity: 0.96,
-  roughness: 0.8,
-  metalness: 0.25,
+  opacity: 0.95,
+  roughness: 0.7,
+  metalness: 0.3,
   side: THREE.DoubleSide,
 });
 
@@ -356,23 +358,21 @@ jumbotron.position.set(0, 2.6, 0);
 scene.add(jumbotron);
 
 // --- Lighting tweaks ---
-// soft gold spotlight from above
-const jumboSpot = new THREE.SpotLight(0xffd34d, 0.3, 10, Math.PI / 3);
+const jumboSpot = new THREE.SpotLight(0xff4d4d, 0.4, 10, Math.PI / 3);
 jumboSpot.position.set(0, 5, 1);
 jumboSpot.target = jumbotron;
 scene.add(jumboSpot);
 
-// rim-light halo so cube edges don’t vanish
-const jumboHalo = new THREE.PointLight(0xffe699, 0.25, 6);
+const jumboHalo = new THREE.PointLight(0xff6666, 0.25, 6);
 jumboHalo.position.copy(jumbotron.position).add(new THREE.Vector3(0, 0.2, 0));
 scene.add(jumboHalo);
 
-// gentle ambient fill around cube
-const jumboAmbient = new THREE.AmbientLight(0x332b10, 0.4);
+const jumboAmbient = new THREE.AmbientLight(0x331111, 0.4);
 scene.add(jumboAmbient);
 
 // draw idle screen
 drawJumbotronIdle();
+
 
 
 window.addEventListener("resize", () => {
