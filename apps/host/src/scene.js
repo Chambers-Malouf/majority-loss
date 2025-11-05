@@ -52,16 +52,8 @@ function drawTablet({
   ctx.font = "bold 28px ui-monospace";
   ctx.fillText(`TIME: ${Math.max(0, timer)}s`, 36, 305);
 
-  // === AI LINES ===
-  let y = 345;
-  ctx.font = "600 26px Inter";
-  aiLines.slice(-6).forEach(line => {
-    ctx.fillStyle = "#94a3b8";
-    wrapText(line, 36, y, 950, 30);
-    y += 38;
-  });
 
-  // === RESULTS (stay near bottom) ===
+  /* === RESULTS (stay near bottom) ===
   if (results) {
     ctx.fillStyle = "#f7d046";
     ctx.font = "700 32px ui-monospace";
@@ -76,7 +68,7 @@ function drawTablet({
     ctx.fillStyle = "#a7f3d0";
     ctx.font = "700 28px ui-monospace";
     ctx.fillText(results.winnersText, 36, ry + 10);
-  }
+  }*/
 
   tabletTexture.needsUpdate = true;
 }
@@ -173,19 +165,35 @@ function showAIDialogue(name, text) {
     div.style.position = "absolute";
     div.style.color = "#f7d046";
     div.style.fontFamily = "Inter, sans-serif";
-    div.style.fontSize = "18px";
-    div.style.textShadow = "0 0 6px rgba(0,0,0,0.8)";
+    div.style.fontSize = "16px";
+    div.style.maxWidth = "260px";
+    div.style.textAlign = "center";
+    div.style.textShadow = "0 0 8px rgba(0,0,0,0.9)";
+    div.style.lineHeight = "1.4";
     div.style.pointerEvents = "none";
+    div.style.transition = "opacity 1s, transform 0.4s ease-out";
     document.body.appendChild(div);
     aiLabels.set(name, div);
     label = div;
   }
-  label.textContent = `${name}: ${text}`;
-  label.style.opacity = "1";
-  label.style.transition = "opacity 1s";
 
-  setTimeout(() => (label.style.opacity = "0"), 4000);
+  // Break long text into multiple lines (wrap every ~70–80 characters)
+  const wrapped =
+    text.length > 80
+      ? text.match(/.{1,80}(?:\s|$)/g)?.join("\n")
+      : text;
+
+  label.textContent = `${name}: ${wrapped || "…"}`;
+  label.style.opacity = "1";
+  label.style.transform = "translateY(0px)";
+
+  // Smooth fade-out and lift after a few seconds
+  setTimeout(() => {
+    label.style.opacity = "0";
+    label.style.transform = "translateY(-20px)";
+  }, 4000);
 }
+
 
 // ===================================================
 // ================== INIT SCENE =====================
