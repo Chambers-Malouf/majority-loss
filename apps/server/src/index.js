@@ -8,6 +8,11 @@ import cors from "cors";
 import dotenv from "dotenv";
 import pg from "pg";
 
+// Polyfill fetch if not available
+if (typeof fetch === "undefined") {
+  global.fetch = (await import("node-fetch")).default;
+}
+
 const MAX_ROUNDS = 10;
 dotenv.config();
 
@@ -155,8 +160,8 @@ app.post("/api/ai-round", express.json(), async (req, res) => {
       choiceId: choice?.id || null,
     });
   } catch (e) {
-    console.error("❌ AI round failed:", e);
-    res.status(500).json({ error: "AI_FAILED" });
+    console.error("❌ AI round failed:", e?.message || e);
+    res.status(500).json({ error: "AI_FAILED", details: String(e?.message || e) });
   }
 });
 
