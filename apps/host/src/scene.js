@@ -106,31 +106,45 @@ function drawJumbotronResults(results, roundNo) {
   const w = 512, h = 256;
   jumboCtx.clearRect(0, 0, w, h);
 
-  // dark red background
-  jumboCtx.fillStyle = "rgba(50, 0, 0, 0.9)";
+  // opaque dark red background
+  jumboCtx.fillStyle = "#250000";
   jumboCtx.fillRect(0, 0, w, h);
 
-  // title
-  jumboCtx.fillStyle = "#ffffff";
-  jumboCtx.font = "bold 34px ui-monospace";
-  jumboCtx.fillText(`ROUND ${roundNo} RESULTS`, 60, 60);
+  // add a faint glow behind the title area
+  const gradient = jumboCtx.createRadialGradient(w / 2, h / 2, 20, w / 2, h / 2, 260);
+  gradient.addColorStop(0, "rgba(255,80,80,0.35)");
+  gradient.addColorStop(1, "rgba(0,0,0,0)");
+  jumboCtx.fillStyle = gradient;
+  jumboCtx.fillRect(0, 0, w, h);
 
-  // results text
-  jumboCtx.fillStyle = "#f1f1f1";
-  jumboCtx.font = "600 26px Inter";
-  let y = 110;
+  // === TITLE ===
+  jumboCtx.shadowColor = "rgba(255,255,255,0.6)";
+  jumboCtx.shadowBlur = 15;
+  jumboCtx.fillStyle = "#ffffff";
+  jumboCtx.font = "900 36px 'Inter', ui-monospace";
+  jumboCtx.fillText(`ROUND ${roundNo} RESULTS`, 55, 65);
+
+  // === COUNTS ===
+  jumboCtx.shadowBlur = 8;
+  jumboCtx.fillStyle = "#f8f8f8";
+  jumboCtx.font = "700 26px 'Inter', sans-serif";
+  let y = 115;
   results.counts.forEach(c => {
-    jumboCtx.fillText(`${c.text}: ${c.count}`, 80, y);
-    y += 32;
+    jumboCtx.fillText(`${c.text}: ${c.count}`, 75, y);
+    y += 34;
   });
 
-  // winners line in light pink/white
-  jumboCtx.fillStyle = "#ffcccc";
-  jumboCtx.font = "700 28px ui-monospace";
-  jumboCtx.fillText(results.winnersText, 80, y + 40);
+  // === WINNERS ===
+  jumboCtx.shadowColor = "rgba(255,100,100,0.8)";
+  jumboCtx.shadowBlur = 20;
+  jumboCtx.fillStyle = "#ffffff";
+  jumboCtx.font = "900 30px ui-monospace";
+  jumboCtx.fillText(results.winnersText, 75, y + 45);
 
+  jumboCtx.shadowBlur = 0;
   jumbotronTexture.needsUpdate = true;
 }
+
 
 
 // ===================================================
@@ -141,23 +155,25 @@ function drawJumbotronIdle() {
   const w = 512, h = 256;
   jumboCtx.clearRect(0, 0, w, h);
 
-  jumboCtx.fillStyle = "rgba(40, 0, 0, 0.85)";
+  jumboCtx.fillStyle = "#250000";
   jumboCtx.fillRect(0, 0, w, h);
 
-  jumboCtx.strokeStyle = "rgba(255, 204, 204, 0.4)";
-  jumboCtx.lineWidth = 4;
-  jumboCtx.strokeRect(6, 6, w - 12, h - 12);
+  jumboCtx.shadowColor = "rgba(255,100,100,0.8)";
+  jumboCtx.shadowBlur = 18;
 
   jumboCtx.fillStyle = "#ffffff";
-  jumboCtx.font = "700 34px ui-monospace";
-  jumboCtx.fillText("MAJORITY LOSS", 110, 90);
+  jumboCtx.font = "900 34px ui-monospace";
+  jumboCtx.fillText("MAJORITY LOSS", 100, 95);
 
-  jumboCtx.fillStyle = "#ffcccc";
-  jumboCtx.font = "600 22px Inter";
+  jumboCtx.shadowColor = "rgba(255,255,255,0.5)";
+  jumboCtx.shadowBlur = 12;
+  jumboCtx.font = "700 22px Inter";
   jumboCtx.fillText("Waiting for results…", 150, 150);
 
+  jumboCtx.shadowBlur = 0;
   jumbotronTexture.needsUpdate = true;
 }
+
 
 
 // ===================================================
@@ -347,7 +363,7 @@ const jumboMat = new THREE.MeshStandardMaterial({
   emissive: 0xff4d4d,        // soft red glow
   emissiveIntensity: 0.35,   // gentle inner light
   transparent: true,
-  opacity: 0.95,
+  opacity: 1.0,
   roughness: 0.7,
   metalness: 0.3,
   side: THREE.DoubleSide,
