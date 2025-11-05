@@ -7,6 +7,8 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 let scene, camera, renderer, controls;
 let tabletMesh, tabletTexture, ctx;
 let jumbotron, jumbotronTexture, jumboCtx;
+let pulseClock = new THREE.Clock();
+
 
 // floating AI name-to-object & dialogue maps
 const playersMap = new Map();
@@ -329,21 +331,22 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
   scene.add(tabletMesh);
   drawTablet({ question: "Loading..." });
 
-// Jumbotron
+// === JUMBOTRON (black cube with gold glow) ===
 const jumboCanvas = document.createElement("canvas");
 jumboCanvas.width = 512; jumboCanvas.height = 256;
 jumboCtx = jumboCanvas.getContext("2d");
 jumbotronTexture = new THREE.CanvasTexture(jumboCanvas);
 
+// --- Material ---
 const jumboMat = new THREE.MeshStandardMaterial({
   map: jumbotronTexture,
-  color: 0x1a1a1a,
-  emissive: 0xffd34d,
-  emissiveIntensity: 0.55,
+  color: 0x0d0d0d,           // dark body
+  emissive: 0xffd34d,        // gold glow
+  emissiveIntensity: 0.45,   // subtle inner light
   transparent: true,
-  opacity: 0.92,
-  roughness: 0.85,
-  metalness: 0.15,
+  opacity: 0.96,
+  roughness: 0.8,
+  metalness: 0.25,
   side: THREE.DoubleSide,
 });
 
@@ -351,11 +354,25 @@ jumbotron = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.9, 1.8), jumboMat);
 jumbotron.position.set(0, 2.6, 0);
 scene.add(jumbotron);
 
-const jumboLight = new THREE.PointLight(0xffd34d, 0.35, 8);
-jumboLight.position.copy(jumbotron.position);
-scene.add(jumboLight);
+// --- Lighting tweaks ---
+// soft gold spotlight from above
+const jumboSpot = new THREE.SpotLight(0xffd34d, 0.3, 10, Math.PI / 3);
+jumboSpot.position.set(0, 5, 1);
+jumboSpot.target = jumbotron;
+scene.add(jumboSpot);
 
+// rim-light halo so cube edges don’t vanish
+const jumboHalo = new THREE.PointLight(0xffe699, 0.25, 6);
+jumboHalo.position.copy(jumbotron.position).add(new THREE.Vector3(0, 0.2, 0));
+scene.add(jumboHalo);
+
+// gentle ambient fill around cube
+const jumboAmbient = new THREE.AmbientLight(0x332b10, 0.4);
+scene.add(jumboAmbient);
+
+// draw idle screen
 drawJumbotronIdle();
+
 
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -378,7 +395,7 @@ function animate() {
   requestAnimationFrame(animate);
   controls.update();
 
-  // keep dialogue over each AI’s head
+  // === Keep dialogue labels following each AI’s head ===
   for (const [name, div] of aiLabels.entries()) {
     const obj = playersMap?.get(name);
     if (!obj) continue;
@@ -391,8 +408,20 @@ function animate() {
     div.style.top = `${y}px`;
   }
 
-  if (jumbotron && jumbotron.visible) jumbotron.rotation.y += 0.002;
+  // === Jumbotron animation ===
+  if (jumbotron && jumbotron.visible) {
+    // slow spin
+    jumbotron.rotation.y += 0.002;
+
+    // smooth emissive pulse between 0.35 → 0.55
+    const t = pulseClock.getElapsedTime();
+    const pulse = 0.45 + Math.sin(t * 1.5) * 0.1;
+    jumbotron.material.emissiveIntensity = pulse;
+  }
+
+  // === Render frame ===
   renderer.render(scene, camera);
 }
 
 export const updateSoloTablet = updatePlayerTablet;
+
