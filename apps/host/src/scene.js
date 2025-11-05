@@ -347,8 +347,8 @@ const jumboMat = new THREE.MeshStandardMaterial({
   color: 0x120000,           // darker red base
   emissive: 0x330000,        // subtle internal red
   emissiveIntensity: 0.15,   // weaker glow (so text shows)
-  transparent: false,        // disable transparency entirely
-  opacity: 1.0,
+  transparent: true,        
+  opacity: 0.5,
   roughness: 0.65,
   metalness: 0.25,
   side: THREE.DoubleSide,
