@@ -305,10 +305,15 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
   jumboCtx = jumboCanvas.getContext("2d");
   jumbotronTexture = new THREE.CanvasTexture(jumboCanvas);
   const jumboMat = new THREE.MeshStandardMaterial({
-    map: jumbotronTexture,
-    emissive: 0x3355ff,
-    emissiveIntensity: 0.5,
-    side: THREE.DoubleSide,
+  map: jumbotronTexture,
+  color: 0x1a1a1a,
+  emissive: 0xffd34d,
+  emissiveIntensity: 0.4,
+  transparent: true,
+  opacity: 0.85,
+  roughness: 0.9,
+  metalness: 0.1,
+  side: THREE.DoubleSide,
   });
   jumbotron = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.9, 1.8), jumboMat);
   jumbotron.position.set(0, 2.6, 0);
