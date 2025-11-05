@@ -7,12 +7,9 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 let scene, camera, renderer, controls;
 let tabletMesh, tabletTexture, ctx;
 let jumbotron, jumbotronTexture, jumboCtx;
-let pulseClock = new THREE.Clock();
 
-
-// floating AI name-to-object & dialogue maps
+// name -> { body, plate, plateCtx, plateTex, baseName }
 const playersMap = new Map();
-const aiLabels = new Map();
 
 // ===================================================
 // =============== CANVAS DRAW HELPERS ===============
@@ -54,23 +51,7 @@ function drawTablet({
   ctx.font = "bold 28px ui-monospace";
   ctx.fillText(`TIME: ${Math.max(0, timer)}s`, 36, 305);
 
-
-  /* === RESULTS (stay near bottom) ===
-  if (results) {
-    ctx.fillStyle = "#f7d046";
-    ctx.font = "700 32px ui-monospace";
-    ctx.fillText("RESULTS", 36, 550);
-    ctx.fillStyle = "#e2e8f0";
-    ctx.font = "600 28px Inter";
-    let ry = 590;
-    results.counts.forEach(c => {
-      ctx.fillText(`${c.text}: ${c.count}`, 36, ry);
-      ry += 34;
-    });
-    ctx.fillStyle = "#a7f3d0";
-    ctx.font = "700 28px ui-monospace";
-    ctx.fillText(results.winnersText, 36, ry + 10);
-  }*/
+  // (results hidden on tablet to reduce clutter)
 
   tabletTexture.needsUpdate = true;
 }
@@ -121,8 +102,9 @@ function drawJumbotronResults(results, roundNo) {
   jumboCtx.font = "700 26px Inter";
   let y = 110;
   results.counts.forEach(c => {
-    jumboCtx.strokeText(`${c.text}: ${c.count}`, 80, y);
-    jumboCtx.fillText(`${c.text}: ${c.count}`, 80, y);
+    const line = `${c.text}: ${c.count}`;
+    jumboCtx.strokeText(line, 80, y);
+    jumboCtx.fillText(line, 80, y);
     y += 32;
   });
 
@@ -132,10 +114,6 @@ function drawJumbotronResults(results, roundNo) {
 
   jumbotronTexture.needsUpdate = true;
 }
-
-
-
-
 
 // ===================================================
 // =============== DRAW JUMBOTRON ====================
@@ -161,10 +139,6 @@ function drawJumbotronIdle() {
 
   jumbotronTexture.needsUpdate = true;
 }
-
-
-
-
 
 // ===================================================
 // =============== TEXT / UI HELPERS =================
@@ -196,45 +170,47 @@ function button(ctx, x, y, w, h, fg, bg, label) {
 }
 
 // ===================================================
-// =============== AI DIALOGUE LABELS ================
+// ======= AI DIALOGUE -> WRITE INTO NAMEPLATES ======
 // ===================================================
 function showAIDialogue(name, text) {
-  let label = aiLabels.get(name);
-  if (!label) {
-    const div = document.createElement("div");
-    div.className = "ai-dialogue";
-    div.style.position = "absolute";
-    div.style.color = "#ffffffff";
-    div.style.fontFamily = "Inter, sans-serif";
-    div.style.fontSize = "16px";
-    div.style.maxWidth = "260px";
-    div.style.textAlign = "center";
-    div.style.textShadow = "0 0 8px rgba(0,0,0,0.9)";
-    div.style.lineHeight = "1.4";
-    div.style.pointerEvents = "none";
-    div.style.transition = "opacity 1s, transform 0.4s ease-out";
-    document.body.appendChild(div);
-    aiLabels.set(name, div);
-    label = div;
-  }
+  const player = playersMap.get(name);
+  if (!player) return;
 
-  // Break long text into multiple lines (wrap every ~70–80 characters)
-  const wrapped =
-    text.length > 80
-      ? text.match(/.{1,80}(?:\s|$)/g)?.join("\n")
-      : text;
+  const { plateCtx, plateTex, baseName } = player;
+  if (!plateCtx) return;
 
-  label.textContent = `${name}: ${wrapped || "…"}`;
-  label.style.opacity = "1";
-  label.style.transform = "translateY(0px)";
+  // Redraw background
+  plateCtx.fillStyle = "#000";
+  plateCtx.fillRect(0, 0, 256, 64);
 
-  // Smooth fade-out and lift after a few seconds
+  // Name
+  plateCtx.fillStyle = "#f7d046";
+  plateCtx.font = "bold 22px ui-monospace";
+  plateCtx.textAlign = "left";
+  plateCtx.textBaseline = "alphabetic";
+  plateCtx.fillText(`${baseName}:`, 12, 26);
+
+  // Dialogue (trim to fit)
+  const msg = (text || "…").trim();
+  const short = msg.length > 42 ? msg.slice(0, 39) + "..." : msg;
+  plateCtx.fillStyle = "#ffffff";
+  plateCtx.font = "500 18px Inter";
+  plateCtx.fillText(short, 12, 52);
+
+  plateTex.needsUpdate = true;
+
+  // Restore just the name after 4s
   setTimeout(() => {
-    label.style.opacity = "0";
-    label.style.transform = "translateY(-20px)";
+    plateCtx.fillStyle = "#000";
+    plateCtx.fillRect(0, 0, 256, 64);
+    plateCtx.fillStyle = "#f7d046";
+    plateCtx.font = "bold 28px ui-monospace";
+    plateCtx.textAlign = "center";
+    plateCtx.textBaseline = "middle";
+    plateCtx.fillText(baseName, 128, 32);
+    plateTex.needsUpdate = true;
   }, 4000);
 }
-
 
 // ===================================================
 // ================== INIT SCENE =====================
@@ -285,7 +261,7 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
   table.position.y = 0.9;
   scene.add(table);
 
-  // Chairs + bodies
+  // Chairs + bodies + nameplates
   const radius = 3.4;
   const chairGeo = new THREE.BoxGeometry(0.7, 0.9, 0.7);
   const bodyGeo = new THREE.SphereGeometry(0.35, 16, 16);
@@ -299,9 +275,8 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
     const body = new THREE.Mesh(bodyGeo, new THREE.MeshStandardMaterial({ color: 0x222228 }));
     body.position.set(chair.position.x, 1.1, chair.position.z);
     scene.add(body);
-    playersMap.set(name, body);
 
-    // nameplate
+    // nameplate canvas
     const plateCanvas = document.createElement("canvas");
     plateCanvas.width = 256; plateCanvas.height = 64;
     const pctx = plateCanvas.getContext("2d");
@@ -311,10 +286,12 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
     pctx.font = "bold 28px ui-monospace";
     pctx.textAlign = "center"; pctx.textBaseline = "middle";
     pctx.fillText(name, 128, 32);
+
+    const plateTex = new THREE.CanvasTexture(plateCanvas);
     const plate = new THREE.Mesh(
       new THREE.PlaneGeometry(1.2, 0.3),
       new THREE.MeshBasicMaterial({
-        map: new THREE.CanvasTexture(plateCanvas),
+        map: plateTex,
         transparent: true,
         side: THREE.DoubleSide
       })
@@ -322,6 +299,8 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
     plate.position.set(chair.position.x, 1.7, chair.position.z);
     plate.lookAt(0, 1.3, 0);
     scene.add(plate);
+
+    playersMap.set(name, { body, plate, plateCtx: pctx, plateTex, baseName: name });
   });
 
   // Tablet
@@ -340,45 +319,41 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
   scene.add(tabletMesh);
   drawTablet({ question: "Loading..." });
 
-// === JUMBOTRON (solid red display with visible white text) ===
-const jumboCanvas = document.createElement("canvas");
-jumboCanvas.width = 512;
-jumboCanvas.height = 256;
-jumboCtx = jumboCanvas.getContext("2d");
-jumbotronTexture = new THREE.CanvasTexture(jumboCanvas);
+  // === JUMBOTRON (solid red display with visible white text) ===
+  const jumboCanvas = document.createElement("canvas");
+  jumboCanvas.width = 512;
+  jumboCanvas.height = 256;
+  jumboCtx = jumboCanvas.getContext("2d");
+  jumbotronTexture = new THREE.CanvasTexture(jumboCanvas);
 
-// Unlit material: shows the text exactly as drawn
-const jumboMat = new THREE.MeshBasicMaterial({
-  map: jumbotronTexture,
-  color: 0xffffff,     // don’t tint the texture
-  transparent: false,  // full solid surface
-  side: THREE.DoubleSide,
-});
+  // Unlit material: shows the text exactly as drawn
+  const jumboMat = new THREE.MeshBasicMaterial({
+    map: jumbotronTexture,
+    color: 0xffffff,
+    transparent: false,
+    side: THREE.DoubleSide,
+  });
 
-jumbotron = new THREE.Mesh(
-  new THREE.BoxGeometry(1.8, 0.9, 1.8),
-  jumboMat
-);
-jumbotron.position.set(0, 2.6, 0);
-scene.add(jumbotron);
+  jumbotron = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.9, 1.8), jumboMat);
+  jumbotron.position.set(0, 2.6, 0);
+  scene.add(jumbotron);
 
-// --- Subtle external lighting so the cube “feels” alive ---
-const jumboHalo = new THREE.PointLight(0xff4444, 0.25, 5);
-jumboHalo.position.set(0, 2.6, 0);
-scene.add(jumboHalo);
+  // Subtle external lighting so the cube has presence
+  const jumboHalo = new THREE.PointLight(0xff4444, 0.25, 5);
+  jumboHalo.position.set(0, 2.6, 0);
+  scene.add(jumboHalo);
+  const jumboAmbient = new THREE.AmbientLight(0x330000, 0.2);
+  scene.add(jumboAmbient);
 
-const jumboAmbient = new THREE.AmbientLight(0x330000, 0.2);
-scene.add(jumboAmbient);
+  drawJumbotronIdle();
 
-// Draw idle screen
-drawJumbotronIdle();
+  window.addEventListener("resize", () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
 
-window.addEventListener("resize", () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
-animate(); 
+  animate();
 }
 
 // ===================================================
@@ -390,37 +365,19 @@ export function updateJumbotronResults(results, roundNo) { drawJumbotronResults(
 export function triggerAIDialogue(name, text) { showAIDialogue(name, text); }
 export function showResultsMode(on) { if (jumbotron) jumbotron.visible = on; }
 
+// ===================================================
+// ===================== ANIMATE =====================
+// ===================================================
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
 
-  // === Keep dialogue labels following each AI’s head ===
-  for (const [name, div] of aiLabels.entries()) {
-    const obj = playersMap?.get(name);
-    if (!obj) continue;
-    const pos = obj.position.clone();
-    pos.y += 2.2;
-    pos.project(camera);
-    const x = (pos.x * 0.5 + 0.5) * window.innerWidth;
-    const y = (-pos.y * 0.5 + 0.5) * window.innerHeight;
-    div.style.left = `${x}px`;
-    div.style.top = `${y}px`;
-  }
-
-  // === Jumbotron animation ===
+  // slow spin for the cube
   if (jumbotron && jumbotron.visible) {
-    // slow spin
     jumbotron.rotation.y += 0.002;
-
-    // smooth emissive pulse between 0.35 → 0.55
-    const t = pulseClock.getElapsedTime();
-    const pulse = 0.45 + Math.sin(t * 1.5) * 0.1;
-    jumbotron.material.emissiveIntensity = pulse;
   }
 
-  // === Render frame ===
   renderer.render(scene, camera);
 }
 
 export const updateSoloTablet = updatePlayerTablet;
-
