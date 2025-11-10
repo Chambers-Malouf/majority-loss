@@ -87,59 +87,72 @@ app.get("/", (_, res) => res.status(200).send("OK"));
 // ===================================================
 // ================= USER PROFILE API ================
 // ===================================================
+
+// Ensure JSON body parsing before routes
 app.use(express.json());
 
 // Create or update profile
 app.post("/api/profile", async (req, res) => {
-  const { display_name, avatar_url } = req.body || {};
-  if (!display_name) {
-    return res.status(400).json({ ok: false, error: "MISSING_NAME" });
-  }
-
   try {
+    const { display_name, avatar_url } = req.body || {};
+    if (!display_name) {
+      return res.status(400).json({ ok: false, error: "MISSING_NAME" });
+    }
+
     // Step 1: find or create user
     const userRes = await pool.query(
-      `INSERT INTO users (display_name)
-       VALUES ($1)
-       ON CONFLICT (display_name) DO UPDATE SET display_name = EXCLUDED.display_name
-       RETURNING id`,
+      `
+      INSERT INTO users (display_name)
+      VALUES ($1)
+      ON CONFLICT (display_name)
+      DO UPDATE SET display_name = EXCLUDED.display_name
+      RETURNING id
+      `,
       [display_name]
     );
+
     const userId = userRes.rows[0].id;
 
     // Step 2: find or create profile
     const profRes = await pool.query(
-      `INSERT INTO profiles (user_id, avatar_url)
-       VALUES ($1, $2)
-       ON CONFLICT (user_id) DO UPDATE SET avatar_url = EXCLUDED.avatar_url
-       RETURNING *`,
+      `
+      INSERT INTO profiles (user_id, avatar_url)
+      VALUES ($1, $2)
+      ON CONFLICT (user_id)
+      DO UPDATE SET avatar_url = EXCLUDED.avatar_url
+      RETURNING *
+      `,
       [userId, avatar_url || null]
     );
 
-    res.json({ ok: true, profile: profRes.rows[0] });
+    return res.json({ ok: true, profile: profRes.rows[0] });
   } catch (err) {
     console.error("❌ /api/profile failed:", err);
-    res.status(500).json({ ok: false, error: err.message });
+    return res.status(500).json({ ok: false, error: err.message });
   }
 });
 
 // Get profile by name
 app.get("/api/profile/:name", async (req, res) => {
-  const name = req.params.name;
   try {
+    const name = req.params.name.trim();
     const q = `
-      SELECT u.id AS user_id, u.display_name, p.avatar_url, p.games_played, p.rounds_won
+      SELECT u.id AS user_id, u.display_name,
+             p.avatar_url, p.games_played, p.rounds_won
       FROM users u
       LEFT JOIN profiles p ON u.id = p.user_id
-      WHERE u.display_name = $1
+      WHERE LOWER(u.display_name) = LOWER($1)
     `;
     const { rows } = await pool.query(q, [name]);
-    if (!rows.length) return res.status(404).json({ ok: false, error: "NOT_FOUND" });
-    res.json({ ok: true, profile: rows[0] });
+    if (!rows.length)
+      return res.status(404).json({ ok: false, error: "NOT_FOUND" });
+    return res.json({ ok: true, profile: rows[0] });
   } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
+    console.error("❌ /api/profile/:name failed:", err);
+    return res.status(500).json({ ok: false, error: err.message });
   }
 });
+
 
 app.get("/api/solo/question", async (_req, res) => {
   try {
