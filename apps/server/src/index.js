@@ -278,33 +278,6 @@ app.post("/api/ai-round", express.json(), async (req, res) => {
     res.status(500).json({ error: "AI_FAILED", details: String(e?.message || e) });
   }
 });
-// ===================================================
-// =============== MISSION DATABASE HELPERS ===========
-// ===================================================
-async function logMission({
-  userId,
-  gameId,
-  roundNumber,
-  type,
-  targetUserId = null,
-  targetOptionId = null
-}) {
-  const q = `
-    INSERT INTO missions (user_id, game_id, round_number, type, target_user_id, target_option_id)
-    VALUES ($1, $2, $3, $4, $5, $6)
-    RETURNING id;
-  `;
-  const { rows } = await pool.query(q, [userId, gameId, roundNumber, type, targetUserId, targetOptionId]);
-  return rows[0].id;
-}
-
-async function completeMission(id, success, bonusPoints) {
-  await pool.query(
-    `UPDATE missions SET success = $1, bonus_points = $2 WHERE id = $3`,
-    [success, bonusPoints, id]
-  );
-}
-
 
 // ===================================================
 // ================= SOCKET SETUP ====================
