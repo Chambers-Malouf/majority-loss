@@ -9,7 +9,7 @@ import {
   updateJumbotronResults,   // 🟡 added
 } from "./scene.js";
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;      // e.g. wss://minority-mayhem.onrender.com
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
 const HTTP_BASE = SOCKET_URL
   .replace(/^wss:\/\//, "https://")
   .replace(/^ws:\/\//, "http://");
@@ -629,6 +629,51 @@ function renderQuestion({ question, options, roundId, roundNumber }) {
   }
 }
 
+function showMissionCard(mission) {
+  const old = document.getElementById("mission-card");
+  if (old) old.remove();
+
+  const card = el("div", {
+    id: "mission-card",
+    class: "card",
+    style: `
+      position: fixed;
+      top: 16px; right: 16px;
+      width: 260px;
+      background: rgba(0,0,0,0.75);
+      color: #fff;
+      border: 1px solid #444;
+      padding: 12px 16px;
+      border-radius: 10px;
+      z-index: 9999;
+      box-shadow: 0 0 10px rgba(0,0,0,0.6);
+    `
+  },
+    el("h3", { style: "margin-bottom:6px;color:#facc15;" }, "🎯 Secret Mission"),
+    el("p", { style: "font-size:14px;line-height:1.4;color:#ddd;" }, getMissionDescription(mission))
+  );
+
+  document.body.appendChild(card);
+}
+
+function getMissionDescription(m) {
+  switch (m.type) {
+    case "INFLUENCE":
+      return `Make sure **${m.targetName}** votes for the special option. (+1 point if successful)`;
+    case "ISOLATION":
+      return `Be the only player to pick an option. (+2 points if successful)`;
+    case "BONDED":
+      return `Vote the same as **${m.targetName}**. If you match, +1 and they lose 1. If not, -1 and they gain 1.`;
+    case "COUNTER":
+      return `Vote differently than **${m.targetName}**. (+1 point if successful)`;
+    case "SEER":
+      return `You can reveal **one player's** vote to everyone this round.`;
+    default:
+      return "Play strategically — there may be hidden roles in effect!";
+  }
+}
+
+
 function renderResults({ roundId, winningOptionId, counts, votes, leaderboard }) {
   screen = "results";
   app.innerHTML = "";
@@ -739,6 +784,11 @@ socket.on("round_started", ({ duration, endAt }) => {
   renderGameStarted({ duration, endAt });
 });
 
+socket.on("mission_assigned", (mission) => {
+  console.log("🎯 New mission received:", mission);
+  showMissionCard(mission);
+});
+
 socket.on("round_question", (payload) => {
   isRoundActive = true;
   currentRound = { id: payload.roundId, number: payload.roundNumber };
@@ -758,8 +808,24 @@ socket.on("round_results", ({ roundId, winningOptionId, counts, votes, leaderboa
   isRoundActive = false;
   currentRound = null;
   activeTimerEl = null;
+
   renderResults({ roundId, winningOptionId, counts, votes, leaderboard });
+
+  const missionCard = document.getElementById("mission-card");
+  if (missionCard) {
+    missionCard.style.transition = "opacity 1s ease";
+    missionCard.innerHTML += `
+      <p style="margin-top:8px;color:#4ade80;font-size:14px;">
+        ✅ Mission resolved!
+      </p>
+    `;
+    setTimeout(() => {
+      missionCard.style.opacity = "0";
+      setTimeout(() => missionCard.remove(), 1000);
+    }, 3000);
+  }
 });
+
 
 socket.on("round_tick", ({ remaining }) => {
   secondsRemaining = remaining;

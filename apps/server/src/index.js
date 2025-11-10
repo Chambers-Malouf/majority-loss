@@ -66,6 +66,43 @@ async function getRandomQuestionWithOptions() {
     options: oRes.rows.map((r) => ({ id: r.id, text: r.text })),
   };
 }
+// ===================================================
+// ============ MISSION DATABASE HELPERS =============
+// ===================================================
+async function logMission({
+  userId,
+  gameId,
+  roundNumber,
+  type,
+  targetUserId = null,
+  targetOptionId = null
+}) {
+  const q = `
+    INSERT INTO missions (user_id, game_id, round_number, type, target_user_id, target_option_id)
+    VALUES ($1, $2, $3, $4, $5, $6)
+    RETURNING id;
+  `;
+  const { rows } = await pool.query(q, [
+    userId,
+    gameId,
+    roundNumber,
+    type,
+    targetUserId,
+    targetOptionId
+  ]);
+  return rows[0].id;
+}
+
+async function completeMission(missionId, success, bonusPoints) {
+  const q = `
+    UPDATE missions
+    SET success = $1,
+        bonus_points = $2
+    WHERE id = $3
+  `;
+  await pool.query(q, [success, bonusPoints, missionId]);
+}
+
 
 // ===================================================
 // ================= EXPRESS SETUP ===================
@@ -241,6 +278,33 @@ app.post("/api/ai-round", express.json(), async (req, res) => {
     res.status(500).json({ error: "AI_FAILED", details: String(e?.message || e) });
   }
 });
+// ===================================================
+// =============== MISSION DATABASE HELPERS ===========
+// ===================================================
+async function logMission({
+  userId,
+  gameId,
+  roundNumber,
+  type,
+  targetUserId = null,
+  targetOptionId = null
+}) {
+  const q = `
+    INSERT INTO missions (user_id, game_id, round_number, type, target_user_id, target_option_id)
+    VALUES ($1, $2, $3, $4, $5, $6)
+    RETURNING id;
+  `;
+  const { rows } = await pool.query(q, [userId, gameId, roundNumber, type, targetUserId, targetOptionId]);
+  return rows[0].id;
+}
+
+async function completeMission(id, success, bonusPoints) {
+  await pool.query(
+    `UPDATE missions SET success = $1, bonus_points = $2 WHERE id = $3`,
+    [success, bonusPoints, id]
+  );
+}
+
 
 // ===================================================
 // ================= SOCKET SETUP ====================
@@ -292,7 +356,6 @@ async function startRound(roomId, durationSec = 20) {
     room.roundNumber = 0;
     return;
   }
-
   const q = await getRandomQuestionWithOptions();
   room.round = {
     id: Date.now().toString(),
@@ -309,6 +372,54 @@ async function startRound(roomId, durationSec = 20) {
     options: room.round.options,
   });
 
+  const missionPool = ["INFLUENCE", "ISOLATION", "BONDED", "COUNTER", "SEER"];
+  const playersArr = Array.from(room.players.values());
+
+  // Randomly decide how many players receive missions (1–3)
+  const numMissions = Math.floor(Math.random() * 3) + 1;
+  const shuffled = playersArr.sort(() => Math.random() - 0.5);
+  const chosen = shuffled.slice(0, numMissions);
+
+  for (const player of chosen) {
+    const type = missionPool[Math.floor(Math.random() * missionPool.length)];
+    let target = null;
+    let option = null;
+
+    if (["INFLUENCE", "BONDED", "COUNTER", "SEER"].includes(type)) {
+      target = playersArr.filter(p => p.id !== player.id)[Math.floor(Math.random() * (playersArr.length - 1))];
+    }
+    if (type === "INFLUENCE") {
+      const opts = room.round.options;
+      option = opts[Math.floor(Math.random() * opts.length)].id;
+    }
+
+    // Store mission in-memory for use later
+    player.mission = {
+      type,
+      targetId: target?.id || null,
+      targetName: target?.name || null,
+      optionId: option || null
+    };
+
+    // Persist to DB (requires logMission() helper to exist)
+    try {
+      const missionId = await logMission({
+        userId: player.playerGameId,
+        gameId: room.gameId,
+        roundNumber: room.roundNumber,
+        type,
+        targetUserId: target?.playerGameId || null,
+        targetOptionId: option || null
+      });
+      player.mission.id = missionId;
+    } catch (err) {
+      console.error("❌ Failed to log mission:", err);
+    }
+
+    // Privately notify player of their mission
+    io.to(player.id).emit("mission_assigned", player.mission);
+  }
+
   const D = Math.max(1, Math.min(300, Number(durationSec) || 20));
   room.endAt = Date.now() + D * 1000;
 
@@ -320,7 +431,6 @@ async function startRound(roomId, durationSec = 20) {
       clearInterval(room.timer);
       room.timer = null;
       room.endAt = null;
-
       const countsMap = new Map();
       for (const opt of room.round.options) countsMap.set(String(opt.id), 0);
       for (const optId of room.roundVotes.values()) {
@@ -351,15 +461,71 @@ async function startRound(roomId, durationSec = 20) {
       }
 
       for (const [socketId, optionId] of room.roundVotes.entries()) {
+        const player = room.players.get(socketId);
+        if (!player) continue;
+
+        // Default: +1 point if in minority
         if (optionId === winningOptionId) {
-          const player = room.players.get(socketId);
-          if (player) {
-            player.points += 1;
-            await pool.query(
-              `UPDATE player_game SET points = $1 WHERE id = $2`,
-              [player.points, player.playerGameId]
-            );
+          player.points += 1;
+          await pool.query(
+            `UPDATE player_game SET points = $1 WHERE id = $2`,
+            [player.points, player.playerGameId]
+          );
+        }
+
+        // If player had a mission, evaluate outcome
+        const mission = player.mission;
+        if (mission) {
+          let bonus = 0;
+          let success = false;
+
+          switch (mission.type) {
+            case "INFLUENCE": {
+              const targetVote = room.roundVotes.get(mission.targetId);
+              if (targetVote === mission.optionId) {
+                success = true;
+                bonus = 1;
+              }
+              break;
+            }
+            case "ISOLATION": {
+              const sameVotes = [...room.roundVotes.values()].filter(v => v === optionId).length;
+              if (sameVotes === 1) {
+                success = true;
+                bonus = 2;
+              }
+              break;
+            }
+            case "BONDED": {
+              const targetVote = room.roundVotes.get(mission.targetId);
+              const target = room.players.get(mission.targetId);
+              if (targetVote === optionId) {
+                success = true;
+                bonus = 1;
+                if (target) target.points = Math.max(0, target.points - 1);
+              } else {
+                success = false;
+                bonus = -1;
+                if (target) target.points += 1;
+              }
+              break;
+            }
+            case "COUNTER": {
+              const targetVote = room.roundVotes.get(mission.targetId);
+              if (targetVote && targetVote !== optionId) {
+                success = true;
+                bonus = 1;
+              }
+              break;
+            }
+            case "SEER": {
+              // SEER handled via separate reveal_vote socket
+              break;
+            }
           }
+
+          player.points += bonus;
+          if (mission.id) await completeMission(mission.id, success, bonus);
         }
       }
 
@@ -374,11 +540,13 @@ async function startRound(roomId, durationSec = 20) {
         })),
       });
 
+      // Cleanup
       room.round = null;
       room.roundVotes = new Map();
     }
   }, 1000);
 }
+
 
 // ===================================================
 // ================= SOCKET HANDLERS =================
