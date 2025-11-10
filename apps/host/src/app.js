@@ -82,30 +82,87 @@ function renderHome() {
   screen = "home";
   app.innerHTML = "";
 
-  const nameInput = el("input", { placeholder: "Your name", maxlength: "16" });
-  const codeInput = el("input", {
-    placeholder: "Room code (e.g., ABC123)",
-    maxlength: "6",
-    class: "mt-8"
-  });
-  const createBtn = el("button", { class: "btn mt-12", onclick: onCreateRoom }, "Create Room");
-  const joinBtn = el("button", {
-    class: "btn mt-12 ml-8",
-    onclick: () => onJoinRoom(codeInput.value, nameInput.value)
-  }, "Join Room");
-  const soloBtn = el("button", { class: "btn mt-12", onclick: startSoloMode }, "Solo Mode (vs 4 AI)");
-
-  app.appendChild(soloBtn);
-  app.appendChild(
-    el("div", { class: "card" },
-      el("h1", {}, "Majority Loss"),
-      nameInput,
-      codeInput,
-      el("div", {}, createBtn, joinBtn),
-      el("div", { class: "small mt-12" }, "Tip: One person creates a room. Everyone else joins with the code.")
-    )
+  const title = el("h1", { style: "margin-bottom: 6px;" }, "Majority Loss");
+  const subtitle = el("p", { class: "small", style: "color:#aaa;margin-bottom:20px;" },
+    "A psychological deception game where being in the minority means victory."
   );
+
+  // Profile section (basic placeholder for now)
+  const profileSection = el("div", { class: "card mt-8", style: "padding:12px;border:1px solid #222;" },
+    el("h3", {}, "👤 Player Profile"),
+    el("input", {
+      id: "profileName",
+      placeholder: "Enter your name",
+      maxlength: "16",
+      style: "width:100%;padding:8px;border-radius:6px;border:none;background:#111;color:#fff;margin-top:6px;"
+    }),
+    el("button", {
+      class: "btn mt-8",
+      onclick: () => {
+        const name = document.getElementById("profileName").value.trim();
+        if (!name) return alert("Please enter a name first.");
+        localStorage.setItem("playerName", name);
+        alert(`Profile saved as ${name}!`);
+      }
+    }, "Save Profile")
+  );
+
+  // Game mode buttons
+  const gameSection = el("div", { class: "card mt-12", style: "padding:20px;" },
+    el("h2", {}, "🎮 Choose Mode"),
+    el("button", {
+      class: "btn mt-12",
+      onclick: () => {
+        const name = localStorage.getItem("playerName");
+        if (!name) return alert("Please save a profile first!");
+        startSoloMode();
+      }
+    }, "Solo Mode (vs 4 AI)"),
+
+    el("button", {
+      class: "btn mt-8",
+      onclick: () => {
+        const name = localStorage.getItem("playerName");
+        if (!name) return alert("Please save a profile first!");
+        isHost = true;
+        onCreateRoom();
+      }
+    }, "Create Multiplayer Room"),
+
+    el("button", {
+      class: "btn mt-8",
+      onclick: () => {
+        const name = localStorage.getItem("playerName");
+        if (!name) return alert("Please save a profile first!");
+        const code = prompt("Enter room code:")?.toUpperCase();
+        if (!code) return;
+        onJoinRoom(code, name);
+      }
+    }, "Join Multiplayer Room")
+  );
+
+  // Help + Settings section
+  const extraSection = el("div", { class: "card mt-12", style: "padding:16px;" },
+    el("button", {
+      class: "btn mt-8",
+      onclick: () => alert("🧠 Objective:\nPick wisely. The few who disagree win the round.")
+    }, "How to Play"),
+
+    el("button", {
+      class: "btn mt-8",
+      onclick: () => alert("⚙️ Settings menu coming soon (change timer, rounds, etc).")
+    }, "Settings")
+  );
+
+  app.appendChild(el("div", { class: "card", style: "text-align:center;padding:32px;" },
+    title,
+    subtitle,
+    profileSection,
+    gameSection,
+    extraSection
+  ));
 }
+
 
 // ===================================================
 // ===================== SOLO MODE ===================
