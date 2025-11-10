@@ -87,20 +87,23 @@ function renderHome() {
     "A psychological deception game where being in the minority means victory."
   );
 
-  // Profile section (basic placeholder for now)
-  const profileSection = el("div", { class: "card mt-8", style: "padding:12px;border:1px solid #222;" },
-    el("h3", {}, "👤 Player Profile"),
-    el("input", {
-      id: "profileName",
-      placeholder: "Enter your name",
-      maxlength: "16",
-      style: "width:100%;padding:8px;border-radius:6px;border:none;background:#111;color:#fff;margin-top:6px;"
-    }),
-    el("button", {
-      class: "btn mt-8",
+  // Compact profile section (sign in / signed in)
+  const profileSection = el("div", {
+    class: "card mt-8",
+    style: "padding:12px;border:1px solid #222;"
+  });
+
+  const savedName = localStorage.getItem("playerName");
+  if (savedName) {
+    profileSection.appendChild(
+      el("div", { style: "color:#8f8;font-weight:bold;" }, `✅ Signed in as: ${savedName}`)
+    );
+  } else {
+    const signInBtn = el("button", {
+      class: "btn",
       onclick: async () => {
-        const name = document.getElementById("profileName").value.trim();
-        if (!name) return alert("Please enter a name first.");
+        const name = prompt("Enter your name:")?.trim();
+        if (!name) return;
 
         try {
           const res = await fetch(`${HTTP_BASE}/api/profile`, {
@@ -113,14 +116,16 @@ function renderHome() {
           if (!data.ok) throw new Error(data.error || "Unknown error");
 
           localStorage.setItem("playerName", name);
-          alert(`✅ Profile saved for ${name}!`);
+          alert(`✅ Signed in as ${name}`);
+          renderHome(); // re-render to update UI
         } catch (err) {
           console.error("Profile save failed:", err);
-          alert("Failed to save profile — check backend connection.");
+          alert("Failed to sign in — check backend connection.");
         }
       }
-    }, "Save Profile")
-  );
+    }, "Sign In");
+    profileSection.appendChild(signInBtn);
+  }
 
   // Game mode buttons
   const gameSection = el("div", { class: "card mt-12", style: "padding:20px;" },
@@ -129,7 +134,7 @@ function renderHome() {
       class: "btn mt-12",
       onclick: () => {
         const name = localStorage.getItem("playerName");
-        if (!name) return alert("Please save a profile first!");
+        if (!name) return alert("Please sign in first!");
         startSoloMode();
       }
     }, "Solo Mode (vs 4 AI)"),
@@ -138,7 +143,7 @@ function renderHome() {
       class: "btn mt-8",
       onclick: () => {
         const name = localStorage.getItem("playerName");
-        if (!name) return alert("Please save a profile first!");
+        if (!name) return alert("Please sign in first!");
         isHost = true;
         onCreateRoom();
       }
@@ -148,7 +153,7 @@ function renderHome() {
       class: "btn mt-8",
       onclick: () => {
         const name = localStorage.getItem("playerName");
-        if (!name) return alert("Please save a profile first!");
+        if (!name) return alert("Please sign in first!");
         const code = prompt("Enter room code:")?.toUpperCase();
         if (!code) return;
         onJoinRoom(code, name);
@@ -177,7 +182,6 @@ function renderHome() {
     extraSection
   ));
 }
-
 
 // ===================================================
 // ===================== SOLO MODE ===================
