@@ -98,11 +98,26 @@ function renderHome() {
     }),
     el("button", {
       class: "btn mt-8",
-      onclick: () => {
+      onclick: async () => {
         const name = document.getElementById("profileName").value.trim();
         if (!name) return alert("Please enter a name first.");
-        localStorage.setItem("playerName", name);
-        alert(`Profile saved as ${name}!`);
+
+        try {
+          const res = await fetch(`${HTTP_BASE}/api/profile`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ display_name: name })
+          });
+
+          const data = await res.json();
+          if (!data.ok) throw new Error(data.error || "Unknown error");
+
+          localStorage.setItem("playerName", name);
+          alert(`✅ Profile saved for ${name}!`);
+        } catch (err) {
+          console.error("Profile save failed:", err);
+          alert("Failed to save profile — check backend connection.");
+        }
       }
     }, "Save Profile")
   );
