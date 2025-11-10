@@ -88,10 +88,9 @@ app.get("/", (_, res) => res.status(200).send("OK"));
 // ================= USER PROFILE API ================
 // ===================================================
 
-// Ensure JSON body parsing before routes
 app.use(express.json());
 
-// Create or update profile
+// Create or update profile safely
 app.post("/api/profile", async (req, res) => {
   try {
     const { display_name, avatar_url } = req.body || {};
@@ -99,21 +98,28 @@ app.post("/api/profile", async (req, res) => {
       return res.status(400).json({ ok: false, error: "MISSING_NAME" });
     }
 
-    // Step 1: find or create user
-    const userRes = await pool.query(
-      `
-      INSERT INTO users (display_name)
-      VALUES ($1)
-      ON CONFLICT (display_name)
-      DO UPDATE SET display_name = EXCLUDED.display_name
-      RETURNING id
-      `,
+    console.log("🟢 /api/profile request:", display_name);
+
+    // STEP 1: find existing user or insert new one
+    let userId;
+    const existing = await pool.query(
+      `SELECT id FROM users WHERE LOWER(display_name) = LOWER($1)`,
       [display_name]
     );
 
-    const userId = userRes.rows[0].id;
+    if (existing.rows.length > 0) {
+      userId = existing.rows[0].id;
+      console.log("✅ Existing user found:", userId);
+    } else {
+      const inserted = await pool.query(
+        `INSERT INTO users (display_name) VALUES ($1) RETURNING id`,
+        [display_name]
+      );
+      userId = inserted.rows[0].id;
+      console.log("✅ New user created:", userId);
+    }
 
-    // Step 2: find or create profile
+    // STEP 2: create or update profile row
     const profRes = await pool.query(
       `
       INSERT INTO profiles (user_id, avatar_url)
@@ -125,6 +131,7 @@ app.post("/api/profile", async (req, res) => {
       [userId, avatar_url || null]
     );
 
+    console.log("✅ Profile saved:", profRes.rows[0]);
     return res.json({ ok: true, profile: profRes.rows[0] });
   } catch (err) {
     console.error("❌ /api/profile failed:", err);
@@ -152,6 +159,7 @@ app.get("/api/profile/:name", async (req, res) => {
     return res.status(500).json({ ok: false, error: err.message });
   }
 });
+
 
 
 app.get("/api/solo/question", async (_req, res) => {
