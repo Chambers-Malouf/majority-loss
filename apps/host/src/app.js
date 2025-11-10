@@ -87,45 +87,7 @@ function renderHome() {
     "A psychological deception game where being in the minority means victory."
   );
 
-  // Compact profile section (sign in / signed in)
-  const profileSection = el("div", {
-    class: "card mt-8",
-    style: "padding:12px;border:1px solid #222;"
-  });
-
   const savedName = localStorage.getItem("playerName");
-  if (savedName) {
-    profileSection.appendChild(
-      el("div", { style: "color:#8f8;font-weight:bold;" }, `✅ Signed in as: ${savedName}`)
-    );
-  } else {
-    const signInBtn = el("button", {
-      class: "btn",
-      onclick: async () => {
-        const name = prompt("Enter your name:")?.trim();
-        if (!name) return;
-
-        try {
-          const res = await fetch(`${HTTP_BASE}/api/profile`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ display_name: name })
-          });
-
-          const data = await res.json();
-          if (!data.ok) throw new Error(data.error || "Unknown error");
-
-          localStorage.setItem("playerName", name);
-          alert(`✅ Signed in as ${name}`);
-          renderHome(); // re-render to update UI
-        } catch (err) {
-          console.error("Profile save failed:", err);
-          alert("Failed to sign in — check backend connection.");
-        }
-      }
-    }, "Sign In");
-    profileSection.appendChild(signInBtn);
-  }
 
   // Game mode buttons
   const gameSection = el("div", { class: "card mt-12", style: "padding:20px;" },
@@ -174,14 +136,52 @@ function renderHome() {
     }, "Settings")
   );
 
+  // Profile section now moved *below* everything
+  const profileSection = el("div", { class: "mt-16", style: "padding:8px;text-align:center;" });
+
+  if (savedName) {
+    profileSection.appendChild(
+      el("p", { style: "color:#8f8;font-size:14px;margin-top:20px;" },
+        `✅ Signed in as: ${savedName}`)
+    );
+  } else {
+    const signInBtn = el("button", {
+      class: "btn",
+      onclick: async () => {
+        const name = prompt("Enter your name:")?.trim();
+        if (!name) return;
+
+        try {
+          const res = await fetch(`${HTTP_BASE}/api/profile`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ display_name: name })
+          });
+
+          const data = await res.json();
+          if (!data.ok) throw new Error(data.error || "Unknown error");
+
+          localStorage.setItem("playerName", name);
+          alert(`✅ Signed in as ${name}`);
+          renderHome(); // re-render to update UI
+        } catch (err) {
+          console.error("Profile save failed:", err);
+          alert("Failed to sign in — check backend connection.");
+        }
+      }
+    }, "Sign In");
+    profileSection.appendChild(signInBtn);
+  }
+
   app.appendChild(el("div", { class: "card", style: "text-align:center;padding:32px;" },
     title,
     subtitle,
-    profileSection,
     gameSection,
-    extraSection
+    extraSection,
+    profileSection 
   ));
 }
+
 
 // ===================================================
 // ===================== SOLO MODE ===================
