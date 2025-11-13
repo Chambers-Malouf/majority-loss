@@ -698,6 +698,89 @@ function renderResults({ roundId, winningOptionId, counts, votes, leaderboard })
   screen = "results";
   app.innerHTML = "";
 
+  // ==========================
+  //  BUILD MISSION BREAKDOWN
+  // ==========================
+  const missionSummary = [];
+
+  for (const p of players) {
+    const mission = p.mission;     // exists on backend and synced via room.players
+    if (!mission) continue;
+
+    const playerName = p.name;
+    let line = null;
+
+    switch (mission.type) {
+      case "INFLUENCE": {
+        // targetUserId = socketId, optionId assigned earlier
+        const targetVote = votes.find(v => v.playerId === mission.targetId);
+        const success = targetVote && targetVote.optionId === mission.optionId;
+        line = success
+          ? `🎯 <b>${playerName}</b> successfully influenced <b>${mission.targetName}</b> (+1)`
+          : `❌ <b>${playerName}</b> failed to influence <b>${mission.targetName}</b> (0)`;
+        break;
+      }
+
+      case "ISOLATION": {
+        // Votes for this player's option
+        const myVote = votes.find(v => v.playerId === p.id);
+        const count = votes.filter(v => v.optionId === myVote?.optionId).length;
+        const success = count === 1;
+        line = success
+          ? `🟦 <b>${playerName}</b> stood alone and succeeded (+2)`
+          : `❌ <b>${playerName}</b> was not isolated (0)`;
+        break;
+      }
+
+      case "BONDED": {
+        const me = votes.find(v => v.playerId === p.id);
+        const target = votes.find(v => v.playerId === mission.targetId);
+
+        if (!me || !target) {
+          line = `❌ <b>${playerName}</b> mission incomplete (target missing)`;
+          break;
+        }
+
+        const matched = me.optionId === target.optionId;
+
+        if (matched) {
+          line = `🔗 <b>${playerName}</b> matched <b>${mission.targetName}</b> (+1, target -1)`;
+        } else {
+          line = `🔗❌ <b>${playerName}</b> failed match with <b>${mission.targetName}</b> (-1, target +1)`;
+        }
+        break;
+      }
+
+      case "COUNTER": {
+        const me = votes.find(v => v.playerId === p.id);
+        const target = votes.find(v => v.playerId === mission.targetId);
+        const success = me && target && me.optionId !== target.optionId;
+
+        line = success
+          ? `⚔️ <b>${playerName}</b> countered <b>${mission.targetName}</b> (+1)`
+          : `❌ <b>${playerName}</b> failed to counter <b>${mission.targetName}</b> (0)`;
+        break;
+      }
+
+      case "SEER": {
+        // Seer doesn't automatically produce score effects — it's informational
+        const target = votes.find(v => v.playerId === mission.targetId);
+        if (target) {
+          const opt = counts.find(o => o.optionId === target.optionId);
+          line = `🔮 <b>${playerName}</b> saw <b>${mission.targetName}</b>'s vote → <b>${opt?.text || "??"}</b>`;
+        } else {
+          line = `🔮 <b>${playerName}</b> attempted reveal (target missing)`;
+        }
+        break;
+      }
+    }
+
+    if (line) missionSummary.push(line);
+  }
+
+  // ==========================
+  //   MAIN RESULTS CARD
+  // ==========================
   const card = el("div", { class: "card" },
     el("h2", {}, "Results"),
     el("div", { class: "mt-8" },
@@ -712,6 +795,27 @@ function renderResults({ roundId, winningOptionId, counts, votes, leaderboard })
     )
   );
 
+  // ==========================
+  //   MISSION SUMMARY BOX
+  // ==========================
+  if (missionSummary.length > 0) {
+    const missionBox = el("div", {
+      class: "card mt-12",
+      style: "background:#101010;border:1px solid #333;"
+    },
+      el("h3", { style: "color:#facc15;margin-bottom:6px;" }, "Secret Mission Outcomes"),
+      ...missionSummary.map(txt =>
+        el("p", {
+          style: "font-size:14px;line-height:1.45;color:#ddd;margin:4px 0;"
+        }, txt)
+      )
+    );
+    card.appendChild(missionBox);
+  }
+
+  // ==========================
+  //   LEADERBOARD
+  // ==========================
   if (leaderboard && leaderboard.length) {
     const leaderboardList = el("ul", {},
       ...leaderboard
@@ -719,14 +823,16 @@ function renderResults({ roundId, winningOptionId, counts, votes, leaderboard })
         .map(p => el("li", {}, `${p.name}: ${p.points} point${p.points === 1 ? "" : "s"}`))
     );
 
-    const leaderboardBox = el("div", { class: "mt-8" },
+    const leaderboardBox = el("div", { class: "mt-12" },
       el("h3", {}, "Scoreboard"),
       leaderboardList
     );
-
     card.appendChild(leaderboardBox);
   }
 
+  // ==========================
+  //   ACTION BUTTONS
+  // ==========================
   const actions = el("div", { class: "mt-12" });
   if (isHost) {
     actions.appendChild(el("button", {
@@ -745,48 +851,6 @@ function renderResults({ roundId, winningOptionId, counts, votes, leaderboard })
   app.appendChild(actions);
 }
 
-function renderGameOver(finalLeaderboard) {
-  screen = "game_over";
-  app.innerHTML = "";
-
-  const card = el("div", { class: "card" },
-    el("h2", {}, "🏁 Game Over!"),
-    el("p", { class: "mt-8" }, "Here are the final results:")
-  );
-
-  if (finalLeaderboard && finalLeaderboard.length) {
-    const list = el("ul", {},
-      ...finalLeaderboard
-        .sort((a, b) => b.points - a.points)
-        .map(p => el("li", {}, `${p.name}: ${p.points} point${p.points === 1 ? "" : "s"}`))
-    );
-
-    const box = el("div", { class: "mt-8" },
-      el("h3", {}, "Final Leaderboard"),
-      list
-    );
-
-    card.appendChild(box);
-  }
-
-  const actions = el("div", { class: "mt-12" },
-    el("button", { class: "btn mr-8", onclick: renderLobby }, "Back to Lobby"),
-    el("button", {
-      class: "btn",
-      onclick: () => {
-        if (isHost) {
-          const payload = { roomId, duration: 20 };
-          socket.emit("start_game", payload);
-        } else {
-          renderLobby();
-        }
-      }
-    }, "Play Again")
-  );
-
-  app.appendChild(card);
-  app.appendChild(actions);
-}
 
 // ===================================================
 // ================= SOCKET EVENTS ===================

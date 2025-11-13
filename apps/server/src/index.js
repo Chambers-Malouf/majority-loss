@@ -329,6 +329,8 @@ async function startRound(roomId, durationSec = 20) {
     room.roundNumber = 0;
     return;
   }
+
+  // Fetch a question
   const q = await getRandomQuestionWithOptions();
   room.round = {
     id: Date.now().toString(),
@@ -345,13 +347,12 @@ async function startRound(roomId, durationSec = 20) {
     options: room.round.options,
   });
 
+  // ====== SECRET MISSION ASSIGNMENTS ======
   const missionPool = ["INFLUENCE", "ISOLATION", "BONDED", "COUNTER", "SEER"];
   const playersArr = Array.from(room.players.values());
 
-  // Randomly decide how many players receive missions (1–3)
-  const numMissions = Math.floor(Math.random() * 3) + 1;
-  const shuffled = playersArr.sort(() => Math.random() - 0.5);
-  const chosen = shuffled.slice(0, numMissions);
+  const numMissions = Math.floor(Math.random() * 3) + 1; // 1–3 players get missions
+  const chosen = playersArr.sort(() => Math.random() - 0.5).slice(0, numMissions);
 
   for (const player of chosen) {
     const type = missionPool[Math.floor(Math.random() * missionPool.length)];
@@ -362,19 +363,19 @@ async function startRound(roomId, durationSec = 20) {
       target = playersArr.filter(p => p.id !== player.id)[Math.floor(Math.random() * (playersArr.length - 1))];
     }
     if (type === "INFLUENCE") {
-      const opts = room.round.options;
-      option = opts[Math.floor(Math.random() * opts.length)].id;
+      option = room.round.options[Math.floor(Math.random() * room.round.options.length)].id;
     }
 
-    // Store mission in-memory for use later
     player.mission = {
+      id: null,
       type,
       targetId: target?.id || null,
       targetName: target?.name || null,
-      optionId: option || null
+      optionId: option || null,
+      success: false,
+      bonusPoints: 0
     };
 
-    // Persist to DB (requires logMission() helper to exist)
     try {
       const missionId = await logMission({
         userId: player.playerGameId,
@@ -389,10 +390,10 @@ async function startRound(roomId, durationSec = 20) {
       console.error("❌ Failed to log mission:", err);
     }
 
-    // Privately notify player of their mission
     io.to(player.id).emit("mission_assigned", player.mission);
   }
 
+  // ====== ROUND TIMER START ======
   const D = Math.max(1, Math.min(300, Number(durationSec) || 20));
   room.endAt = Date.now() + D * 1000;
 
@@ -404,21 +405,22 @@ async function startRound(roomId, durationSec = 20) {
       clearInterval(room.timer);
       room.timer = null;
       room.endAt = null;
+
+      // ====== COUNT VOTES ======
       const countsMap = new Map();
       for (const opt of room.round.options) countsMap.set(String(opt.id), 0);
       for (const optId of room.roundVotes.values()) {
-        const key = String(optId);
-        countsMap.set(key, (countsMap.get(key) || 0) + 1);
+        countsMap.set(String(optId), (countsMap.get(String(optId)) || 0) + 1);
       }
 
       const counts = [];
       for (const [optionId, count] of countsMap.entries()) {
-        const opt = room.round.options.find((o) => o.id === optionId);
+        const opt = room.round.options.find((o) => o.id === Number(optionId));
         if (opt) counts.push({ optionId: Number(optionId), count, text: opt.text });
       }
 
-      const nonzero = counts.filter((c) => c.count > 0);
       let winningOptionId = null;
+      const nonzero = counts.filter((c) => c.count > 0);
       if (nonzero.length > 0) {
         const min = Math.min(...nonzero.map((c) => c.count));
         const losers = nonzero.filter((c) => c.count === min);
@@ -428,16 +430,17 @@ async function startRound(roomId, durationSec = 20) {
       const votes = [];
       for (const [socketId, optionId] of room.roundVotes.entries()) {
         const player = room.players.get(socketId);
-        if (player) {
-          votes.push({ playerId: socketId, playerName: player.name, optionId });
-        }
+        votes.push({ playerId: socketId, playerName: player.name, optionId });
       }
+
+      // ====== APPLY POINTS + MISSIONS ======
+      const missionResults = [];
 
       for (const [socketId, optionId] of room.roundVotes.entries()) {
         const player = room.players.get(socketId);
         if (!player) continue;
 
-        // Default: +1 point if in minority
+        // Normal scoring
         if (optionId === winningOptionId) {
           player.points += 1;
           await pool.query(
@@ -446,11 +449,11 @@ async function startRound(roomId, durationSec = 20) {
           );
         }
 
-        // If player had a mission, evaluate outcome
+        // Mission scoring
         const mission = player.mission;
         if (mission) {
-          let bonus = 0;
           let success = false;
+          let bonus = 0;
 
           switch (mission.type) {
             case "INFLUENCE": {
@@ -491,17 +494,31 @@ async function startRound(roomId, durationSec = 20) {
               }
               break;
             }
-            case "SEER": {
-              // SEER handled via separate reveal_vote socket
+            case "SEER":
+              // SEER handled manually by player during the round
               break;
-            }
           }
 
+          // Apply
+          player.mission.success = success;
+          player.mission.bonusPoints = bonus;
           player.points += bonus;
-          if (mission.id) await completeMission(mission.id, success, bonus);
+
+          if (mission.id) {
+            await completeMission(mission.id, success, bonus);
+          }
+
+          missionResults.push({
+            name: player.name,
+            type: mission.type,
+            targetName: mission.targetName,
+            success,
+            bonus
+          });
         }
       }
 
+      // ====== EMIT RESULTS WITH MISSIONS ======
       io.to(roomId).emit("round_results", {
         roundId: room.round.id,
         winningOptionId,
@@ -511,14 +528,15 @@ async function startRound(roomId, durationSec = 20) {
           name: p.name,
           points: p.points,
         })),
+        missionResults   // <<<<< NEW
       });
 
-      // Cleanup
       room.round = null;
       room.roundVotes = new Map();
     }
   }, 1000);
 }
+
 
 
 // ===================================================
