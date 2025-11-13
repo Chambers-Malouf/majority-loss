@@ -136,15 +136,32 @@ function renderHome() {
     }, "Settings")
   );
 
-  // Profile section now moved *below* everything
+  // Profile section at bottom
   const profileSection = el("div", { class: "mt-16", style: "padding:8px;text-align:center;" });
 
   if (savedName) {
+    // Signed in display
     profileSection.appendChild(
       el("p", { style: "color:#8f8;font-size:14px;margin-top:20px;" },
         `✅ Signed in as: ${savedName}`)
     );
+
+    // Logout button (subtle)
+    profileSection.appendChild(
+      el("button", {
+        class: "btn",
+        style: "margin-top:10px;background:#222;border:1px solid #444;font-size:13px;padding:4px 12px;",
+        onclick: () => {
+          if (confirm("Log out and switch player?")) {
+            localStorage.removeItem("playerName");
+            renderHome();
+          }
+        }
+      }, "Log Out / Switch Player")
+    );
+
   } else {
+    // Sign In button
     const signInBtn = el("button", {
       class: "btn",
       onclick: async () => {
@@ -163,24 +180,27 @@ function renderHome() {
 
           localStorage.setItem("playerName", name);
           alert(`✅ Signed in as ${name}`);
-          renderHome(); // re-render to update UI
+          renderHome();
         } catch (err) {
           console.error("Profile save failed:", err);
           alert("Failed to sign in — check backend connection.");
         }
       }
     }, "Sign In");
+
     profileSection.appendChild(signInBtn);
   }
 
+  // Full screen card
   app.appendChild(el("div", { class: "card", style: "text-align:center;padding:32px;" },
     title,
     subtitle,
     gameSection,
     extraSection,
-    profileSection 
+    profileSection
   ));
 }
+
 
 
 // ===================================================
