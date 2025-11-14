@@ -10,9 +10,7 @@ import {
 } from "./scene.js";
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
-const HTTP_BASE = SOCKET_URL
-  .replace(/^wss:\/\//, "https://")
-  .replace(/^ws:\/\//, "http://");
+const HTTP_BASE = import.meta.env.VITE_HTTP_URL;
 
 const socket = io(SOCKET_URL, { transports: ["websocket"] });
 
