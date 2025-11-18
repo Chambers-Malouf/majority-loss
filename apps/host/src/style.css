@@ -42,3 +42,9 @@ canvas {
   position: relative;
   z-index: 10;
 }
+#solo-panel {
+  position: fixed !important;
+  bottom: -200px !important; /* pushes completely off-screen */
+  opacity: 0; 
+  pointer-events: none; /* prevents accidental interaction */
+}

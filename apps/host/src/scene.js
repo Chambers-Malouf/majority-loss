@@ -195,44 +195,90 @@ function button(ctx, x, y, w, h, fg, bg, label) {
   ctx.fillText(label, x + (w - tw) / 2, y + h / 2 + 9);
 }
 
-// ===================================================
-// ================ AI DIALOGUE PLATES ===============
-// ===================================================
 function showAIDialogue(name, text) {
   const player = playersMap.get(name);
   if (!player) return;
 
-  const { plateCtx, plateTex, baseName } = player;
+  const { plate, plateCtx, plateTex, baseName } = player;
 
-  plateCtx.fillStyle = "#000";
-  plateCtx.fillRect(0, 0, 256, 64);
-
-  plateCtx.fillStyle = "#f7d046";
-  plateCtx.font = "bold 22px ui-monospace";
-  plateCtx.textBaseline = "alphabetic";
-  plateCtx.textAlign = "left";
-  plateCtx.fillText(`${baseName}:`, 12, 26);
-
+  const maxWidth = 240;
   const msg = (text || "…").trim();
-  const t = msg.length > 42 ? msg.slice(0, 39) + "..." : msg;
 
-  plateCtx.fillStyle = "#ffffff";
+  // Measure lines BEFORE resizing
   plateCtx.font = "500 18px Inter";
-  plateCtx.fillText(t, 12, 52);
+  const words = msg.split(" ");
+  let lines = [];
+  let line = "";
 
+  for (const w of words) {
+    const test = line + w + " ";
+    if (plateCtx.measureText(test).width > maxWidth) {
+      lines.push(line.trim());
+      line = w + " ";
+    } else {
+      line = test;
+    }
+  }
+  lines.push(line.trim());
+
+  const lineHeight = 22;
+  const totalHeight = Math.min(64 + lines.length * lineHeight, 160);
+
+  // ⚠️ Resize canvas — this wipes all context state
+  plateCtx.canvas.height = totalHeight;
+
+  // Reapply all styles after resize
+  plateCtx.fillStyle = "#000";
+  plateCtx.fillRect(0, 0, 256, totalHeight);
+
+  // Draw name
+  plateCtx.font = "bold 22px ui-monospace";
+  plateCtx.fillStyle = "#f7d046";
+  plateCtx.textAlign = "left";
+  plateCtx.textBaseline = "top";
+  plateCtx.fillText(`${baseName}:`, 12, 8);
+
+  // Draw dialogue
+  plateCtx.font = "500 18px Inter";
+  plateCtx.fillStyle = "#ffffff";
+  let y = 36;
+
+  for (const l of lines) {
+    plateCtx.fillText(l, 12, y);
+    y += lineHeight;
+  }
+
+  // Update texture now that drawing is done
   plateTex.needsUpdate = true;
 
+  // Correct geometry scaling
+  const pxToUnits = 0.3 / 64; // default plane height is 0.3 at 64px
+  const newHeight = totalHeight * pxToUnits;
+
+  plate.geometry.dispose();
+  plate.geometry = new THREE.PlaneGeometry(1.2, newHeight);
+
+  // Auto-collapse after 4 sec
   setTimeout(() => {
+    plateCtx.canvas.height = 64;
+
     plateCtx.fillStyle = "#000";
     plateCtx.fillRect(0, 0, 256, 64);
-    plateCtx.fillStyle = "#f7d046";
+
     plateCtx.font = "bold 28px ui-monospace";
+    plateCtx.fillStyle = "#f7d046";
     plateCtx.textAlign = "center";
     plateCtx.textBaseline = "middle";
     plateCtx.fillText(baseName, 128, 32);
+
     plateTex.needsUpdate = true;
+
+    plate.geometry.dispose();
+    plate.geometry = new THREE.PlaneGeometry(1.2, 0.3);
   }, 4000);
 }
+
+
 
 // ===================================================
 // ================== INIT SCENE =====================
