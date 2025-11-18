@@ -306,6 +306,46 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
   back.position.set(0, 3.5, -6.5);
   scene.add(back);
 
+// ===================================================
+// 🔥 MACBOOK BRIGHTNESS BOOST (Fix for dark screens)
+// ===================================================
+const isMac = navigator.platform.toUpperCase().includes("MAC");
+
+if (isMac) {
+  console.log("Applying macOS brightness correction…");
+
+  // Stronger global ambient
+  scene.add(new THREE.AmbientLight(0xffffff, 0.65));
+
+  // Boost spotlight + fills
+  spot.intensity = 2.2;
+  fill.intensity = 1.6;
+  back.intensity = 1.3;
+
+  // Arena becomes lighter so characters are visible
+  arena.material.color = new THREE.Color(0x101015);
+  arena.material.roughness = 0.75;
+
+  // Fog gets lighter so less black crushing
+  scene.fog.density = 0.11;
+
+  // Nameplates more visible
+  for (const { plateTex, plateCtx, baseName } of playersMap.values()) {
+    plateCtx.fillStyle = "#222";  
+    plateCtx.fillRect(0, 0, 256, 64);
+    plateCtx.fillStyle = "#f7d046";
+    plateCtx.font = "bold 28px ui-monospace";
+    plateCtx.textAlign = "center";
+    plateCtx.textBaseline = "middle";
+    plateCtx.fillText(baseName, 128, 32);
+    plateTex.needsUpdate = true;
+  }
+
+  // Jumbotron halo brighter
+  if (jumboHalo) jumboHalo.intensity = 0.7;
+}
+
+
   // =================================================
   //                 FLOOR / TABLE
   // =================================================
