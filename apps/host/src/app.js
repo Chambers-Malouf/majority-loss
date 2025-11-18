@@ -5,8 +5,9 @@ import { io } from "socket.io-client";
 import {
   initScene,
   updatePlayerTablet,
-  triggerAIDialogue,        // 🟡 added
-  updateJumbotronResults,   // 🟡 added
+  triggerAIDialogue,
+  updateJumbotronResults,
+  updateJumbotronScoreboard,   // ⭐ ADDED
 } from "./scene.js";
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
@@ -54,12 +55,12 @@ let activeTimerEl = null;
 const SOLO_MAX_ROUNDS = 10;
 const SOLO_TIMER = 20;
 let soloRoundNo = 0;
-let soloScore = new Map(); // name -> points
+let soloScore = new Map();
 const AI_LIST = [
-  { name: "Chishiya", personality: "You are Chishiya from Alice in Borderland — a calm, calculating genius who treats everything like a psychological game. Speak sparsely." },
-  { name: "Yuuichi",  personality: "You are Yuuichi Katagiri from Tomodachi Game — manipulative, unpredictable; mix kindness with cruelty; always two steps ahead." },
-  { name: "Yumeko",   personality: "You are Yumeko Jabami from Kakegurui — a thrill-seeking gambler who delights in risk. Dramatic, delighted, intense." },
-  { name: "L",        personality: "You are L from Death Note — analytical, monotone, concise; briefly explain reasoning." },
+  { name: "Chishiya", personality: "You are Chishiya from Alice in Borderland — a calm, calculating genius." },
+  { name: "Yuuichi",  personality: "You are Yuuichi Katagiri — manipulative, unpredictable." },
+  { name: "Yumeko",   personality: "You are Yumeko Jabami — thrill-seeking, dramatic." },
+  { name: "L",        personality: "You are L from Death Note — analytical, monotone, concise." },
 ];
 
 // ===================================================
@@ -87,7 +88,6 @@ function renderHome() {
 
   const savedName = localStorage.getItem("playerName");
 
-  // Game mode buttons
   const gameSection = el("div", { class: "card mt-12", style: "padding:20px;" },
     el("h2", {}, "🎮 Choose Mode"),
     el("button", {
@@ -98,7 +98,6 @@ function renderHome() {
         startSoloMode();
       }
     }, "Solo Mode (vs 4 AI)"),
-
     el("button", {
       class: "btn mt-8",
       onclick: () => {
@@ -108,7 +107,6 @@ function renderHome() {
         onCreateRoom();
       }
     }, "Create Multiplayer Room"),
-
     el("button", {
       class: "btn mt-8",
       onclick: () => {
@@ -121,7 +119,6 @@ function renderHome() {
     }, "Join Multiplayer Room")
   );
 
-  // Help + Settings section
   const extraSection = el("div", { class: "card mt-12", style: "padding:16px;" },
     el("button", {
       class: "btn mt-8",
@@ -130,21 +127,17 @@ function renderHome() {
 
     el("button", {
       class: "btn mt-8",
-      onclick: () => alert("⚙️ Settings menu coming soon (change timer, rounds, etc).")
+      onclick: () => alert("⚙️ Settings menu coming soon.")
     }, "Settings")
   );
 
-  // Profile section at bottom
   const profileSection = el("div", { class: "mt-16", style: "padding:8px;text-align:center;" });
 
   if (savedName) {
-    // Signed in display
     profileSection.appendChild(
       el("p", { style: "color:#8f8;font-size:14px;margin-top:20px;" },
         `✅ Signed in as: ${savedName}`)
     );
-
-    // Logout button (subtle)
     profileSection.appendChild(
       el("button", {
         class: "btn",
@@ -157,49 +150,40 @@ function renderHome() {
         }
       }, "Log Out / Switch Player")
     );
-
   } else {
-    // Sign In button
-    const signInBtn = el("button", {
-      class: "btn",
-      onclick: async () => {
-        const name = prompt("Enter your name:")?.trim();
-        if (!name) return;
+    profileSection.appendChild(
+      el("button", {
+        class: "btn",
+        onclick: async () => {
+          const name = prompt("Enter your name:")?.trim();
+          if (!name) return;
 
-        try {
-          const res = await fetch(`${HTTP_BASE}/api/profile`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ display_name: name })
-          });
+          try {
+            const res = await fetch(`${HTTP_BASE}/api/profile`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ display_name: name })
+            });
 
-          const data = await res.json();
-          if (!data.ok) throw new Error(data.error || "Unknown error");
+            const data = await res.json();
+            if (!data.ok) throw new Error(data.error || "Unknown error");
 
-          localStorage.setItem("playerName", name);
-          alert(`✅ Signed in as ${name}`);
-          renderHome();
-        } catch (err) {
-          console.error("Profile save failed:", err);
-          alert("Failed to sign in — check backend connection.");
+            localStorage.setItem("playerName", name);
+            alert(`Signed in as ${name}`);
+            renderHome();
+          } catch (err) {
+            console.error("Profile save failed:", err);
+            alert("Failed to sign in.");
+          }
         }
-      }
-    }, "Sign In");
-
-    profileSection.appendChild(signInBtn);
+      }, "Sign In")
+    );
   }
 
-  // Full screen card
   app.appendChild(el("div", { class: "card", style: "text-align:center;padding:32px;" },
-    title,
-    subtitle,
-    gameSection,
-    extraSection,
-    profileSection
+    title, subtitle, gameSection, extraSection, profileSection
   ));
 }
-
-
 
 // ===================================================
 // ===================== SOLO MODE ===================
@@ -250,7 +234,7 @@ function mountSoloHUD() {
     id: "solo-toast",
     style: `
       position:absolute; top:18px; left:50%; transform:translateX(-50%);
-      color:#e2e8f0; font-weight:700; font-family: ui-monospace, Menlo, Consolas;
+      color:#e2e8f0; font-weight:700; font-family: ui-monospace;
       background: rgba(0,0,0,0.35); padding: 8px 12px; border-radius: 10px;
       display:none;
     `
@@ -289,7 +273,7 @@ async function soloNextRound() {
   } catch (err) {
     updatePlayerTablet({
       title: `ROUND ${soloRoundNo}`,
-      question: "Could not fetch question — check backend logs.",
+      question: "Could not fetch question.",
       options: [],
       timer,
       aiLines
@@ -301,7 +285,7 @@ async function soloNextRound() {
   const options = (qData?.options || []).map(o => ({ id: o.id, text: o.text }));
   let playerPick = null;
 
-  // === Initial render ===
+  // === Initial Render ===
   updatePlayerTablet({
     title: `ROUND ${soloRoundNo}`,
     question: question.text,
@@ -310,7 +294,6 @@ async function soloNextRound() {
     aiLines
   });
 
-  // === Player Buttons ===
   soloSetButtons(options, (opt) => {
     playerPick = opt;
     const toast = document.getElementById("solo-toast");
@@ -321,22 +304,19 @@ async function soloNextRound() {
     }
   });
 
-  // === AI Thinking / Decisions ===
+  // === AI Thinking & Decisions ===
   const aiPromises = AI_LIST.map(async (ai) => {
-    await wait(800 + Math.random() * 1500);
+    await wait(500 + Math.random() * 1500);
     let thinking = "…", choiceId = null, choiceText = null;
 
     try {
       const res = await soloGetAIVote(ai.name, ai.personality, question, options);
-      thinking = res.thinking || "…";
+      thinking = res.thinking;
       choiceId = res.choiceId;
       choiceText = res.choiceText;
-    } catch (err) {
-      console.warn("AI fetch failed for", ai.name, err);
-    }
+    } catch {}
 
-    // Always show visible floating dialogue
-    triggerAIDialogue(ai.name, thinking.trim() || "Hmm...");
+    triggerAIDialogue(ai.name, thinking.trim() || "…");
 
     aiLines.push(`${ai.name}: ${thinking}`);
     updatePlayerTablet({
@@ -355,7 +335,7 @@ async function soloNextRound() {
     return { name: ai.name, option: foundOpt };
   });
 
-  // === Timer Countdown ===
+  // === Timer ===
   const tInt = setInterval(() => {
     timer -= 1;
     updatePlayerTablet({
@@ -369,17 +349,13 @@ async function soloNextRound() {
   }, 1000);
 
   await wait(SOLO_TIMER * 1000);
-  const aiVotes = await Promise.all(aiPromises).catch(err => {
-    console.warn("AI promise failure:", err);
-    return [];
-  });
+  const aiVotes = await Promise.all(aiPromises).catch(() => []);
 
-  // === Player Default Pick ===
   if (!playerPick) {
     playerPick = options[Math.floor(Math.random() * options.length)];
   }
 
-  // === Vote Counting ===
+  // === Count Votes ===
   const countsMap = new Map(options.map(o => [o.id, 0]));
   const votes = [];
   countsMap.set(playerPick.id, (countsMap.get(playerPick.id) || 0) + 1);
@@ -391,7 +367,6 @@ async function soloNextRound() {
     votes.push({ name: v.name, optionId: v.option.id });
   }
 
-  // === Determine Winner (Minority Option) ===
   const counts = options.map(o => ({
     optionId: o.id,
     text: o.text,
@@ -406,7 +381,6 @@ async function soloNextRound() {
     if (minority.length === 1) winningOptionId = minority[0].optionId;
   }
 
-  // === Award Points ===
   const winners = votes.filter(v => v.optionId === winningOptionId).map(v => v.name);
   for (const name of winners) {
     soloScore.set(name, (soloScore.get(name) || 0) + 1);
@@ -415,7 +389,9 @@ async function soloNextRound() {
   const winnersText = winners.length ? `Winner(s): ${winners.join(", ")}` : "Tie / No winner";
   const resultsPayload = { counts, winnersText };
 
-  // === Update Tablet + Jumbotron ===
+  // =====================================================
+  // ⭐ PHASE 1 — SHOW ROUND RESULTS
+  // =====================================================
   updatePlayerTablet({
     title: `ROUND ${soloRoundNo} — RESULTS`,
     question: question.text,
@@ -425,24 +401,28 @@ async function soloNextRound() {
     results: resultsPayload
   });
 
-  if (typeof updateJumbotronResults === "function") {
-    updateJumbotronResults(resultsPayload, soloRoundNo);
-  }
+  updateJumbotronResults(resultsPayload, soloRoundNo);
 
-  // Safety redraw to prevent blue-screen bug
-  if (resultsPayload?.counts?.length) {
-    console.log("Updating jumbotron results for round", soloRoundNo);
-    updateJumbotronResults(resultsPayload, soloRoundNo);
-  } else {
-    console.warn("No results data to render on jumbotron");
-  }
-
-  // Pause briefly then next round
   await wait(4000);
+
+  // =====================================================
+  // ⭐ PHASE 2 — SHOW SCOREBOARD (5 sec)
+  // =====================================================
+  updateJumbotronScoreboard(soloScore);   // ⭐ ADDED
+
+  const panel = document.getElementById("solo-panel");
+  if (panel) panel.innerHTML = "";  // freeze input
+
+  await wait(5000);
+
+  // =====================================================
+  // ⭐ PHASE 3 — NEXT ROUND
+  // =====================================================
   soloNextRound();
-  // ===================================================
-  // =============== AI FETCH HELPER ===================
-  // ===================================================
+
+  // =====================================================
+  // =============== AI FETCH HELPER ====================
+  // =====================================================
   async function soloGetAIVote(aiName, aiPersonality, question, options) {
     try {
       const res = await fetch(`${HTTP_BASE}/api/ai-round`, {
@@ -453,30 +433,21 @@ async function soloNextRound() {
           aiPersonality,
           question,
           options,
-          roomId: null // not using sockets in solo mode
+          roomId: null
         })
       });
 
-      if (!res.ok) {
-        console.warn(`AI fetch failed for ${aiName}: HTTP ${res.status}`);
-        return { thinking: "Hmm...", choiceId: null, choiceText: null };
-      }
-
       const data = await res.json();
-      console.log("🤖 AI response:", aiName, data); // for debugging
-
       return {
-        thinking: data?.thinking || "Hmm...",
-        choiceId: data?.choiceId ?? null,
-        choiceText: data?.choiceText ?? null
+        thinking: data.thinking || "Hmm...",
+        choiceId: data.choiceId,
+        choiceText: data.choiceText
       };
-    } catch (err) {
-      console.error("❌ soloGetAIVote error:", aiName, err);
+    } catch {
       return { thinking: "Hmm...", choiceId: null, choiceText: null };
     }
   }
 }
-
 
 // ===================================================
 // ================= GAME OVER =======================
@@ -486,7 +457,8 @@ function soloGameOver() {
     .map(([name, points]) => ({ name, points }))
     .sort((a, b) => b.points - a.points);
 
-  const lines = board.map((p) => `${p.name}: ${p.points} point${p.points === 1 ? "" : "s"}`);
+  const lines = board.map((p) => `${p.name}: ${p.points} pts`);
+
   updatePlayerTablet({
     title: "🏁 GAME OVER — SOLO",
     question: "Final leaderboard",
@@ -498,6 +470,7 @@ function soloGameOver() {
   const panel = document.getElementById("solo-panel");
   if (panel) panel.innerHTML = "";
 }
+
 // ===================================================
 // ================= MULTIPLAYER MODE ================
 // ===================================================
@@ -517,7 +490,6 @@ function onCreateRoom() {
 function onJoinRoom(code, name) {
   roomId = (code || "").trim().toUpperCase();
   myName = (name || "").trim() || "Player";
-  if (!roomId) return alert("Enter a room code.");
   socket.emit("join_room", { roomId, name: myName }, (ack) => {
     if (ack?.error) return alert(ack.error);
     myId = ack.playerId;
@@ -534,7 +506,7 @@ function renderLobby() {
 
   const header = el("div", { class: "card" },
     el("h2", {}, "Room: ", el("span", { class: "mono" }, roomId || "------")),
-    el("div", { class: "small" }, "Share this code for friends to join")
+    el("div", { class: "small" }, "Share this code with friends")
   );
 
   const list = el("div", { class: "card" }, el("h3", {}, "Players"));
@@ -549,16 +521,17 @@ function renderLobby() {
 
   let startWrap = null;
   if (isHost && screen === "lobby" && !isRoundActive) {
-    const startBtn = el("button", {
-      class: "btn mt-12",
-      onclick: () => {
-        isRoundActive = true;
-        secondsRemaining = 20;
-        renderGameStarted({ duration: 20 });
-        socket.emit("start_game", { roomId, duration: 20 });
-      }
-    }, "Start Game");
-    startWrap = el("div", {}, startBtn);
+    startWrap = el("div", {},
+      el("button", {
+        class: "btn mt-12",
+        onclick: () => {
+          isRoundActive = true;
+          secondsRemaining = 20;
+          renderGameStarted({ duration: 20 });
+          socket.emit("start_game", { roomId, duration: 20 });
+        }
+      }, "Start Game")
+    );
   }
 
   app.appendChild(header);
@@ -566,17 +539,17 @@ function renderLobby() {
   if (startWrap) app.appendChild(startWrap);
 }
 
-function renderGameStarted({ duration, endAt } = {}) {
+function renderGameStarted() {
   screen = "started";
   app.innerHTML = "";
 
   const card = el("div", { class: "card" },
     el("h2", {}, "Game started 🎉"),
-    el("div", { class: "small mt-8" }, "The host has started the game. This is the in-game screen.")
+    el("div", { class: "small mt-8" }, "Waiting for the first round")
   );
 
   const timer = el("div", { class: "small mt-8 mono" },
-    typeof secondsRemaining === "number" ? `Time: ${secondsRemaining || 0}s` : ""
+    `Time: ${secondsRemaining || 0}s`
   );
   activeTimerEl = timer;
   card.appendChild(timer);
@@ -636,7 +609,7 @@ function renderQuestion({ question, options, roundId, roundNumber }) {
   app.appendChild(title);
   app.appendChild(qCard);
 
-  // flush queued AI thoughts (multiplayer path)
+  // Flush queued AI thoughts
   if (window.pendingAIThoughts?.length && renderQuestion._aiLogEl) {
     for (const { aiName, thinking } of window.pendingAIThoughts) {
       renderQuestion._aiLogEl.appendChild(
@@ -646,209 +619,6 @@ function renderQuestion({ question, options, roundId, roundNumber }) {
     window.pendingAIThoughts = [];
   }
 }
-
-function showMissionCard(mission) {
-  const old = document.getElementById("mission-card");
-  if (old) old.remove();
-
-  const card = el("div", {
-    id: "mission-card",
-    class: "card",
-    style: `
-      position: fixed;
-      top: 16px; right: 16px;
-      width: 260px;
-      background: rgba(0,0,0,0.75);
-      color: #fff;
-      border: 1px solid #444;
-      padding: 12px 16px;
-      border-radius: 10px;
-      z-index: 9999;
-      box-shadow: 0 0 10px rgba(0,0,0,0.6);
-    `
-  },
-    el("h3", { style: "margin-bottom:6px;color:#facc15;" }, "🎯 Secret Mission"),
-    el("p", { style: "font-size:14px;line-height:1.4;color:#ddd;" }, getMissionDescription(mission))
-  );
-
-  document.body.appendChild(card);
-}
-
-function getMissionDescription(m) {
-  switch (m.type) {
-    case "INFLUENCE":
-      return `Make sure **${m.targetName}** votes for the special option. (+1 point if successful)`;
-    case "ISOLATION":
-      return `Be the only player to pick an option. (+2 points if successful)`;
-    case "BONDED":
-      return `Vote the same as **${m.targetName}**. If you match, +1 and they lose 1. If not, -1 and they gain 1.`;
-    case "COUNTER":
-      return `Vote differently than **${m.targetName}**. (+1 point if successful)`;
-    case "SEER":
-      return `You can reveal **one player's** vote to everyone this round.`;
-    default:
-      return "Play strategically — there may be hidden roles in effect!";
-  }
-}
-
-
-function renderResults({ roundId, winningOptionId, counts, votes, leaderboard }) {
-  screen = "results";
-  app.innerHTML = "";
-
-  // ==========================
-  //  BUILD MISSION BREAKDOWN
-  // ==========================
-  const missionSummary = [];
-
-  for (const p of players) {
-    const mission = p.mission;     // exists on backend and synced via room.players
-    if (!mission) continue;
-
-    const playerName = p.name;
-    let line = null;
-
-    switch (mission.type) {
-      case "INFLUENCE": {
-        // targetUserId = socketId, optionId assigned earlier
-        const targetVote = votes.find(v => v.playerId === mission.targetId);
-        const success = targetVote && targetVote.optionId === mission.optionId;
-        line = success
-          ? `🎯 <b>${playerName}</b> successfully influenced <b>${mission.targetName}</b> (+1)`
-          : `❌ <b>${playerName}</b> failed to influence <b>${mission.targetName}</b> (0)`;
-        break;
-      }
-
-      case "ISOLATION": {
-        // Votes for this player's option
-        const myVote = votes.find(v => v.playerId === p.id);
-        const count = votes.filter(v => v.optionId === myVote?.optionId).length;
-        const success = count === 1;
-        line = success
-          ? `🟦 <b>${playerName}</b> stood alone and succeeded (+2)`
-          : `❌ <b>${playerName}</b> was not isolated (0)`;
-        break;
-      }
-
-      case "BONDED": {
-        const me = votes.find(v => v.playerId === p.id);
-        const target = votes.find(v => v.playerId === mission.targetId);
-
-        if (!me || !target) {
-          line = `❌ <b>${playerName}</b> mission incomplete (target missing)`;
-          break;
-        }
-
-        const matched = me.optionId === target.optionId;
-
-        if (matched) {
-          line = `🔗 <b>${playerName}</b> matched <b>${mission.targetName}</b> (+1, target -1)`;
-        } else {
-          line = `🔗❌ <b>${playerName}</b> failed match with <b>${mission.targetName}</b> (-1, target +1)`;
-        }
-        break;
-      }
-
-      case "COUNTER": {
-        const me = votes.find(v => v.playerId === p.id);
-        const target = votes.find(v => v.playerId === mission.targetId);
-        const success = me && target && me.optionId !== target.optionId;
-
-        line = success
-          ? `⚔️ <b>${playerName}</b> countered <b>${mission.targetName}</b> (+1)`
-          : `❌ <b>${playerName}</b> failed to counter <b>${mission.targetName}</b> (0)`;
-        break;
-      }
-
-      case "SEER": {
-        // Seer doesn't automatically produce score effects — it's informational
-        const target = votes.find(v => v.playerId === mission.targetId);
-        if (target) {
-          const opt = counts.find(o => o.optionId === target.optionId);
-          line = `🔮 <b>${playerName}</b> saw <b>${mission.targetName}</b>'s vote → <b>${opt?.text || "??"}</b>`;
-        } else {
-          line = `🔮 <b>${playerName}</b> attempted reveal (target missing)`;
-        }
-        break;
-      }
-    }
-
-    if (line) missionSummary.push(line);
-  }
-
-  // ==========================
-  //   MAIN RESULTS CARD
-  // ==========================
-  const card = el("div", { class: "card" },
-    el("h2", {}, "Results"),
-    el("div", { class: "mt-8" },
-      ...counts.map(c => el("div", {}, `${c.text}: ${c.count}`))
-    ),
-    el("div", { class: "mt-8" },
-      el("strong", {},
-        winningOptionId
-          ? `Winner(s): ${votes.filter(v => v.optionId === winningOptionId).map(v => v.playerName).join(", ")}`
-          : "Tie / No winner"
-      )
-    )
-  );
-
-  // ==========================
-  //   MISSION SUMMARY BOX
-  // ==========================
-  if (missionSummary.length > 0) {
-    const missionBox = el("div", {
-      class: "card mt-12",
-      style: "background:#101010;border:1px solid #333;"
-    },
-      el("h3", { style: "color:#facc15;margin-bottom:6px;" }, "Secret Mission Outcomes"),
-      ...missionSummary.map(txt =>
-        el("p", {
-          style: "font-size:14px;line-height:1.45;color:#ddd;margin:4px 0;"
-        }, txt)
-      )
-    );
-    card.appendChild(missionBox);
-  }
-
-  // ==========================
-  //   LEADERBOARD
-  // ==========================
-  if (leaderboard && leaderboard.length) {
-    const leaderboardList = el("ul", {},
-      ...leaderboard
-        .sort((a, b) => b.points - a.points)
-        .map(p => el("li", {}, `${p.name}: ${p.points} point${p.points === 1 ? "" : "s"}`))
-    );
-
-    const leaderboardBox = el("div", { class: "mt-12" },
-      el("h3", {}, "Scoreboard"),
-      leaderboardList
-    );
-    card.appendChild(leaderboardBox);
-  }
-
-  // ==========================
-  //   ACTION BUTTONS
-  // ==========================
-  const actions = el("div", { class: "mt-12" });
-  if (isHost) {
-    actions.appendChild(el("button", {
-      class: "btn mr-8",
-      onclick: () => {
-        const payload = { roomId, duration: 20 };
-        socket.emit("start_game", payload, (ack) => {
-          if (ack?.error) alert(ack.error);
-        });
-      }
-    }, "Next Round"));
-  }
-  actions.appendChild(el("button", { class: "btn", onclick: renderLobby }, "Back to Lobby"));
-
-  app.appendChild(card);
-  app.appendChild(actions);
-}
-
 
 // ===================================================
 // ================= SOCKET EVENTS ===================
@@ -867,7 +637,6 @@ socket.on("round_started", ({ duration, endAt }) => {
 });
 
 socket.on("mission_assigned", (mission) => {
-  console.log("🎯 New mission received:", mission);
   showMissionCard(mission);
 });
 
@@ -907,7 +676,6 @@ socket.on("round_results", ({ roundId, winningOptionId, counts, votes, leaderboa
     }, 3000);
   }
 });
-
 
 socket.on("round_tick", ({ remaining }) => {
   secondsRemaining = remaining;

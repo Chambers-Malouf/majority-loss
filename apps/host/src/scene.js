@@ -38,7 +38,7 @@ function drawTablet({
   ctx.font = "700 34px Inter";
   wrapText(question, 36, 125, 950, 42);
 
-  // === OPTIONS (moved up) ===
+  // === OPTIONS ===
   ctx.font = "600 30px Inter";
   const buttonY = 210;
   options.forEach((t, i) => {
@@ -50,8 +50,6 @@ function drawTablet({
   ctx.fillStyle = "#c6c6c6";
   ctx.font = "bold 28px ui-monospace";
   ctx.fillText(`TIME: ${Math.max(0, timer)}s`, 36, 305);
-
-  // (results hidden on tablet to reduce clutter)
 
   tabletTexture.needsUpdate = true;
 }
@@ -87,11 +85,9 @@ function drawJumbotronResults(results, roundNo) {
   const w = 512, h = 256;
   jumboCtx.clearRect(0, 0, w, h);
 
-  // solid red background
   jumboCtx.fillStyle = "#a00000";
   jumboCtx.fillRect(0, 0, w, h);
 
-  // bright white text with black outline for readability
   jumboCtx.fillStyle = "#ffffff";
   jumboCtx.strokeStyle = "#000000";
   jumboCtx.lineWidth = 3;
@@ -111,6 +107,41 @@ function drawJumbotronResults(results, roundNo) {
   jumboCtx.font = "900 28px ui-monospace";
   jumboCtx.strokeText(results.winnersText, 80, y + 40);
   jumboCtx.fillText(results.winnersText, 80, y + 40);
+
+  jumbotronTexture.needsUpdate = true;
+}
+
+// ===================================================
+// =============== SCOREBOARD PHASE ==================
+// ===================================================
+// ⭐ NEW scoreboard screen for phase 2
+function drawJumbotronScoreboard(scoreMap) {
+  if (!jumboCtx) return;
+
+  const w = 512, h = 256;
+  jumboCtx.clearRect(0, 0, w, h);
+
+  // Background
+  jumboCtx.fillStyle = "#000080"; // deep blue scoreboard
+  jumboCtx.fillRect(0, 0, w, h);
+
+  jumboCtx.fillStyle = "#ffffff";
+  jumboCtx.strokeStyle = "#000000";
+  jumboCtx.lineWidth = 3;
+  jumboCtx.font = "bold 32px ui-monospace";
+  jumboCtx.strokeText("TOTAL SCOREBOARD", 60, 50);
+  jumboCtx.fillText("TOTAL SCOREBOARD", 60, 50);
+
+  // Scores
+  jumboCtx.font = "700 26px Inter";
+
+  let y = 110;
+  for (const [name, points] of scoreMap.entries()) {
+    const line = `${name}: ${points}`;
+    jumboCtx.strokeText(line, 80, y);
+    jumboCtx.fillText(line, 80, y);
+    y += 32;
+  }
 
   jumbotronTexture.needsUpdate = true;
 }
@@ -179,7 +210,7 @@ function showAIDialogue(name, text) {
   const { plateCtx, plateTex, baseName } = player;
   if (!plateCtx) return;
 
-  // Redraw background
+  // Background
   plateCtx.fillStyle = "#000";
   plateCtx.fillRect(0, 0, 256, 64);
 
@@ -190,7 +221,7 @@ function showAIDialogue(name, text) {
   plateCtx.textBaseline = "alphabetic";
   plateCtx.fillText(`${baseName}:`, 12, 26);
 
-  // Dialogue (trim to fit)
+  // Dialogue
   const msg = (text || "…").trim();
   const short = msg.length > 42 ? msg.slice(0, 39) + "..." : msg;
   plateCtx.fillStyle = "#ffffff";
@@ -199,7 +230,7 @@ function showAIDialogue(name, text) {
 
   plateTex.needsUpdate = true;
 
-  // Restore just the name after 4s
+  // Restore after 4s
   setTimeout(() => {
     plateCtx.fillStyle = "#000";
     plateCtx.fillRect(0, 0, 256, 64);
@@ -225,7 +256,6 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
   renderer.domElement.id = "solo-bg";
   document.body.appendChild(renderer.domElement);
 
-  // Player camera behind table looking in
   camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
   camera.position.set(0, 1.6, -3.8);
   camera.lookAt(0, 1.2, 0);
@@ -237,7 +267,6 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
   controls.maxPolarAngle = Math.PI / 2;
   controls.target.set(0, 1.2, 0);
 
-  // Lighting
   scene.add(new THREE.AmbientLight(0x9090c0, 1.3));
   const spot = new THREE.SpotLight(0xffffff, 1.4, 20, Math.PI / 3);
   spot.position.set(0, 5, 0);
@@ -246,7 +275,6 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
   fill.position.set(0, 2, 0);
   scene.add(fill);
 
-  // Floor / table
   const floor = new THREE.Mesh(
     new THREE.CircleGeometry(7, 64),
     new THREE.MeshStandardMaterial({ color: 0x111111 })
@@ -261,12 +289,13 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
   table.position.y = 0.9;
   scene.add(table);
 
-  // Chairs + bodies + nameplates
   const radius = 3.4;
   const chairGeo = new THREE.BoxGeometry(0.7, 0.9, 0.7);
   const bodyGeo = new THREE.SphereGeometry(0.35, 16, 16);
+
   aiNames.slice(1).forEach((name, i) => {
     const a = THREE.MathUtils.degToRad(-70 + i * 45);
+
     const chair = new THREE.Mesh(chairGeo, new THREE.MeshStandardMaterial({ color: 0x222222 }));
     chair.position.set(Math.sin(a) * radius, 0.45, Math.cos(a) * radius);
     chair.lookAt(0, 0.45, 0);
@@ -276,7 +305,6 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
     body.position.set(chair.position.x, 1.1, chair.position.z);
     scene.add(body);
 
-    // nameplate canvas
     const plateCanvas = document.createElement("canvas");
     plateCanvas.width = 256; plateCanvas.height = 64;
     const pctx = plateCanvas.getContext("2d");
@@ -298,12 +326,11 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
     );
     plate.position.set(chair.position.x, 1.7, chair.position.z);
     plate.lookAt(0, 1.3, 0);
-    scene.add(plate);
 
+    scene.add(plate);
     playersMap.set(name, { body, plate, plateCtx: pctx, plateTex, baseName: name });
   });
 
-  // Tablet
   const canvas = document.createElement("canvas");
   canvas.width = 1024; canvas.height = 768;
   ctx = canvas.getContext("2d");
@@ -312,21 +339,20 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
     map: tabletTexture,
     side: THREE.DoubleSide,
   });
+
   const tabletGeo = new THREE.PlaneGeometry(0.95, 0.72);
   tabletMesh = new THREE.Mesh(tabletGeo, tabletMat);
   tabletMesh.position.set(0, 1.2, -2.3);
-  tabletMesh.rotation.set(0.18, Math.PI, 0);
+  tabletMesh.rotation.set(0.18,  Math.PI, 0);
   scene.add(tabletMesh);
   drawTablet({ question: "Loading..." });
 
-  // === JUMBOTRON (solid red display with visible white text) ===
   const jumboCanvas = document.createElement("canvas");
   jumboCanvas.width = 512;
   jumboCanvas.height = 256;
   jumboCtx = jumboCanvas.getContext("2d");
   jumbotronTexture = new THREE.CanvasTexture(jumboCanvas);
 
-  // Unlit material: shows the text exactly as drawn
   const jumboMat = new THREE.MeshBasicMaterial({
     map: jumbotronTexture,
     color: 0xffffff,
@@ -338,12 +364,10 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
   jumbotron.position.set(0, 2.6, 0);
   scene.add(jumbotron);
 
-  // Subtle external lighting so the cube has presence
   const jumboHalo = new THREE.PointLight(0xff4444, 0.25, 5);
   jumboHalo.position.set(0, 2.6, 0);
   scene.add(jumboHalo);
-  const jumboAmbient = new THREE.AmbientLight(0x330000, 0.2);
-  scene.add(jumboAmbient);
+  scene.add(new THREE.AmbientLight(0x330000, 0.2));
 
   drawJumbotronIdle();
 
@@ -362,6 +386,12 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
 export function updatePlayerTablet(payload) { drawTablet(payload || {}); }
 export function updateScoreboard(lb) { drawScoreboard(lb || []); }
 export function updateJumbotronResults(results, roundNo) { drawJumbotronResults(results, roundNo); }
+
+// ⭐ NEW EXPORT
+export function updateJumbotronScoreboard(scoreMap) {
+  drawJumbotronScoreboard(scoreMap);
+}
+
 export function triggerAIDialogue(name, text) { showAIDialogue(name, text); }
 export function showResultsMode(on) { if (jumbotron) jumbotron.visible = on; }
 
@@ -372,7 +402,6 @@ function animate() {
   requestAnimationFrame(animate);
   controls.update();
 
-  // slow spin for the cube
   if (jumbotron && jumbotron.visible) {
     jumbotron.rotation.y += 0.002;
   }
