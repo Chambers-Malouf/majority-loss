@@ -114,7 +114,7 @@ function drawJumbotronResults(results, roundNo) {
 // ===================================================
 // =============== SCOREBOARD PHASE ==================
 // ===================================================
-// ⭐ NEW scoreboard screen for phase 2
+// ⭐ scoreboard screen for "total points" phase
 function drawJumbotronScoreboard(scoreMap) {
   if (!jumboCtx) return;
 
@@ -248,15 +248,30 @@ function showAIDialogue(name, text) {
 // ===================================================
 export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"]) {
   if (document.querySelector("#solo-bg")) return;
+
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x050505);
+  scene.background = new THREE.Color(0x020208);
+
+  // Slight atmospheric fog for depth
+  scene.fog = new THREE.FogExp2(0x000000, 0.18);
 
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
+  // make colors look correct across devices
+  if ("outputEncoding" in renderer) {
+    renderer.outputEncoding = THREE.sRGBEncoding;
+  } else if ("outputColorSpace" in renderer) {
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+  }
   renderer.domElement.id = "solo-bg";
   document.body.appendChild(renderer.domElement);
 
-  camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+  camera = new THREE.PerspectiveCamera(
+    60,
+    window.innerWidth / window.innerHeight,
+    0.1,
+    100
+  );
   camera.position.set(0, 1.6, -3.8);
   camera.lookAt(0, 1.2, 0);
 
@@ -267,28 +282,100 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
   controls.maxPolarAngle = Math.PI / 2;
   controls.target.set(0, 1.2, 0);
 
-  scene.add(new THREE.AmbientLight(0x9090c0, 1.3));
-  const spot = new THREE.SpotLight(0xffffff, 1.4, 20, Math.PI / 3);
-  spot.position.set(0, 5, 0);
+  // =================================================
+  //                 LIGHTING
+  // =================================================
+  // Soft global sky/ground light
+  const hemi = new THREE.HemisphereLight(0x3e4cff, 0x080808, 0.8);
+  scene.add(hemi);
+
+  // Strong overhead spotlight focused on table center
+  const spot = new THREE.SpotLight(0xffffff, 1.7, 25, Math.PI / 4, 0.3, 1.5);
+  spot.position.set(0, 6, 0);
+  spot.target.position.set(0, 1, 0);
   scene.add(spot);
-  const fill = new THREE.PointLight(0xffc870, 0.6, 10);
-  fill.position.set(0, 2, 0);
+  scene.add(spot.target);
+
+  // Warm fill from table height
+  const fill = new THREE.PointLight(0xffc870, 0.8, 12);
+  fill.position.set(0, 2.0, 0);
   scene.add(fill);
 
+  // Cool rim light from behind camera
+  const back = new THREE.PointLight(0x4488ff, 0.6, 18);
+  back.position.set(0, 3.5, -6.5);
+  scene.add(back);
+
+  // =================================================
+  //                 FLOOR / TABLE
+  // =================================================
   const floor = new THREE.Mesh(
     new THREE.CircleGeometry(7, 64),
-    new THREE.MeshStandardMaterial({ color: 0x111111 })
+    new THREE.MeshStandardMaterial({
+      color: 0x080808,
+      metalness: 0.4,
+      roughness: 0.6
+    })
   );
   floor.rotation.x = -Math.PI / 2;
+  floor.position.y = 0;
   scene.add(floor);
 
   const table = new THREE.Mesh(
     new THREE.CylinderGeometry(2.5, 2.5, 0.25, 40),
-    new THREE.MeshStandardMaterial({ color: 0x151515 })
+    new THREE.MeshStandardMaterial({
+      color: 0x151515,
+      metalness: 0.3,
+      roughness: 0.5
+    })
   );
   table.position.y = 0.9;
   scene.add(table);
 
+  // Under-table glowing ring
+  const underGlow = new THREE.Mesh(
+    new THREE.RingGeometry(2.2, 2.5, 40),
+    new THREE.MeshBasicMaterial({
+      color: 0xffcc33,
+      transparent: true,
+      opacity: 0.35
+    })
+  );
+  underGlow.rotation.x = -Math.PI / 2;
+  underGlow.position.y = 0.89;
+  scene.add(underGlow);
+
+  // =================================================
+  //                 ARENA / ROOM
+  // =================================================
+  // Big cylindrical arena walls
+  const arenaGeo = new THREE.CylinderGeometry(10, 10, 6, 64, 1, true);
+  const arenaMat = new THREE.MeshStandardMaterial({
+    color: 0x050506,
+    metalness: 0.2,
+    roughness: 0.9,
+    side: THREE.BackSide
+  });
+  const arena = new THREE.Mesh(arenaGeo, arenaMat);
+  arena.position.y = 1.5;
+  scene.add(arena);
+
+  // Ceiling light ring
+  const ringGeo = new THREE.TorusGeometry(6.8, 0.18, 24, 120);
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0xff2244 });
+  const ceilingRing = new THREE.Mesh(ringGeo, ringMat);
+  ceilingRing.position.y = 4.2;
+  ceilingRing.rotation.x = Math.PI / 2;
+  scene.add(ceilingRing);
+
+  // Soft glow from the ring
+  const ringLight = new THREE.PointLight(0xff2244, 0.7, 20);
+  ringLight.position.set(0, 4.2, 0);
+  scene.add(ringLight);
+
+  // =================================================
+  //          CHAIRS + BODIES + NAMEPLATES
+  // =================================================
   const radius = 3.4;
   const chairGeo = new THREE.BoxGeometry(0.7, 0.9, 0.7);
   const bodyGeo = new THREE.SphereGeometry(0.35, 16, 16);
@@ -296,23 +383,48 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
   aiNames.slice(1).forEach((name, i) => {
     const a = THREE.MathUtils.degToRad(-70 + i * 45);
 
-    const chair = new THREE.Mesh(chairGeo, new THREE.MeshStandardMaterial({ color: 0x222222 }));
-    chair.position.set(Math.sin(a) * radius, 0.45, Math.cos(a) * radius);
+    const cx = Math.sin(a) * radius;
+    const cz = Math.cos(a) * radius;
+
+    const chair = new THREE.Mesh(
+      chairGeo,
+      new THREE.MeshStandardMaterial({
+        color: 0x1a1a1f,
+        metalness: 0.2,
+        roughness: 0.6
+      })
+    );
+    chair.position.set(cx, 0.45, cz);
     chair.lookAt(0, 0.45, 0);
     scene.add(chair);
 
-    const body = new THREE.Mesh(bodyGeo, new THREE.MeshStandardMaterial({ color: 0x222228 }));
-    body.position.set(chair.position.x, 1.1, chair.position.z);
+    const body = new THREE.Mesh(
+      bodyGeo,
+      new THREE.MeshStandardMaterial({
+        color: 0x222228,
+        metalness: 0.1,
+        roughness: 0.7
+      })
+    );
+    body.position.set(cx, 1.1, cz);
     scene.add(body);
 
+    // Per-AI rim light behind them
+    const rim = new THREE.PointLight(0xff6666, 0.55, 4.5);
+    rim.position.set(cx * 1.1, 1.7, cz * 1.1);
+    scene.add(rim);
+
+    // Nameplate canvas
     const plateCanvas = document.createElement("canvas");
-    plateCanvas.width = 256; plateCanvas.height = 64;
+    plateCanvas.width = 256;
+    plateCanvas.height = 64;
     const pctx = plateCanvas.getContext("2d");
     pctx.fillStyle = "#000";
     pctx.fillRect(0, 0, 256, 64);
     pctx.fillStyle = "#f7d046";
     pctx.font = "bold 28px ui-monospace";
-    pctx.textAlign = "center"; pctx.textBaseline = "middle";
+    pctx.textAlign = "center";
+    pctx.textBaseline = "middle";
     pctx.fillText(name, 128, 32);
 
     const plateTex = new THREE.CanvasTexture(plateCanvas);
@@ -324,29 +436,36 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
         side: THREE.DoubleSide
       })
     );
-    plate.position.set(chair.position.x, 1.7, chair.position.z);
+    plate.position.set(cx, 1.7, cz);
     plate.lookAt(0, 1.3, 0);
 
     scene.add(plate);
     playersMap.set(name, { body, plate, plateCtx: pctx, plateTex, baseName: name });
   });
 
+  // =================================================
+  //                   TABLET
+  // =================================================
   const canvas = document.createElement("canvas");
-  canvas.width = 1024; canvas.height = 768;
+  canvas.width = 1024;
+  canvas.height = 768;
   ctx = canvas.getContext("2d");
   tabletTexture = new THREE.CanvasTexture(canvas);
   const tabletMat = new THREE.MeshBasicMaterial({
     map: tabletTexture,
-    side: THREE.DoubleSide,
+    side: THREE.DoubleSide
   });
 
   const tabletGeo = new THREE.PlaneGeometry(0.95, 0.72);
   tabletMesh = new THREE.Mesh(tabletGeo, tabletMat);
   tabletMesh.position.set(0, 1.2, -2.3);
-  tabletMesh.rotation.set(0.18,  Math.PI, 0);
+  tabletMesh.rotation.set(0.18, Math.PI, 0);
   scene.add(tabletMesh);
   drawTablet({ question: "Loading..." });
 
+  // =================================================
+  //                 JUMBOTRON
+  // =================================================
   const jumboCanvas = document.createElement("canvas");
   jumboCanvas.width = 512;
   jumboCanvas.height = 256;
@@ -357,17 +476,20 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
     map: jumbotronTexture,
     color: 0xffffff,
     transparent: false,
-    side: THREE.DoubleSide,
+    side: THREE.DoubleSide
   });
 
   jumbotron = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.9, 1.8), jumboMat);
   jumbotron.position.set(0, 2.6, 0);
   scene.add(jumbotron);
 
-  const jumboHalo = new THREE.PointLight(0xff4444, 0.25, 5);
+  const jumboHalo = new THREE.PointLight(0xff4444, 0.4, 6);
   jumboHalo.position.set(0, 2.6, 0);
   scene.add(jumboHalo);
-  scene.add(new THREE.AmbientLight(0x330000, 0.2));
+
+  // Small ambient red so cube never disappears
+  const jumboAmbient = new THREE.AmbientLight(0x330000, 0.3);
+  scene.add(jumboAmbient);
 
   drawJumbotronIdle();
 
@@ -383,17 +505,27 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
 // ===================================================
 // ================= PUBLIC API ======================
 // ===================================================
-export function updatePlayerTablet(payload) { drawTablet(payload || {}); }
-export function updateScoreboard(lb) { drawScoreboard(lb || []); }
-export function updateJumbotronResults(results, roundNo) { drawJumbotronResults(results, roundNo); }
+export function updatePlayerTablet(payload) {
+  drawTablet(payload || {});
+}
+export function updateScoreboard(lb) {
+  drawScoreboard(lb || []);
+}
+export function updateJumbotronResults(results, roundNo) {
+  drawJumbotronResults(results, roundNo);
+}
 
-// ⭐ NEW EXPORT
+// ⭐ EXPORT scoreboard phase for app.js
 export function updateJumbotronScoreboard(scoreMap) {
   drawJumbotronScoreboard(scoreMap);
 }
 
-export function triggerAIDialogue(name, text) { showAIDialogue(name, text); }
-export function showResultsMode(on) { if (jumbotron) jumbotron.visible = on; }
+export function triggerAIDialogue(name, text) {
+  showAIDialogue(name, text);
+}
+export function showResultsMode(on) {
+  if (jumbotron) jumbotron.visible = on;
+}
 
 // ===================================================
 // ===================== ANIMATE =====================
@@ -402,9 +534,15 @@ function animate() {
   requestAnimationFrame(animate);
   controls.update();
 
+  // Slow spin for cube
   if (jumbotron && jumbotron.visible) {
     jumbotron.rotation.y += 0.002;
   }
+
+  // Gentle breathing of ceiling ring
+  // (just a subtle pulse so it's not static)
+  // ceilingRing defined in initScene scope so we can't animate it here,
+  // but the jumbotron spin + lights + fog already add motion.
 
   renderer.render(scene, camera);
 }
