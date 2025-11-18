@@ -448,6 +448,22 @@ async function soloNextRound() {
     }
   }
 }
+// Listen to tablet picks
+document.addEventListener("solo-tablet-pick", (e) => {
+  const opt = e.detail;
+  if (!opt) return;
+
+  // EXACT same behavior as clicking the HTML button
+  playerPick = { id: opt.id, text: opt.text };
+
+  const toast = document.getElementById("solo-toast");
+  if (toast) {
+    toast.textContent = `You picked: ${opt.text}`;
+    toast.style.display = "block";
+    setTimeout(() => (toast.style.display = "none"), 1200);
+  }
+});
+
 
 // ===================================================
 // ================= GAME OVER =======================

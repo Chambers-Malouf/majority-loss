@@ -8,6 +8,12 @@ let scene, camera, renderer, controls;
 let tabletMesh, tabletTexture, ctx;
 let jumbotron, jumbotronTexture, jumboCtx;
 let ceilingRing, arena, jumboHalo;
+// For tablet clicking
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+let tabletOptionRegions = [];   // { x, y, w, h, text }
+let currentTabletOptions = [];  // store the actual option objects
+
 
 // name -> { body, plate, plateCtx, plateTex, baseName }
 const playersMap = new Map();
@@ -23,27 +29,52 @@ function drawTablet({ title = "MAJORITY LOSS — SOLO", question = "", options =
   ctx.fillStyle = "#1a1a1a";
   ctx.fillRect(0, 0, w, h);
 
+  // ---- TITLE ----
   ctx.fillStyle = "#f7d046";
   ctx.font = "bold 42px ui-monospace";
   ctx.fillText(title, 36, 65);
 
+  // ---- QUESTION ----
   ctx.fillStyle = "#ffffff";
   ctx.font = "700 34px Inter";
   wrapText(question, 36, 125, 950, 42);
 
+  // ---- OPTIONS + CLICK REGIONS ----
+  tabletOptionRegions = [];           // clear old regions
+  currentTabletOptions = options.map((t, index) => ({
+    id: index,
+    text: t
+  }));
+
   ctx.font = "600 30px Inter";
   const buttonY = 210;
+
   options.forEach((t, i) => {
     const x = 36 + i * 250;
-    button(ctx, x, buttonY, 220, 60, "#f7d046", "#1b1b1b", t);
+    const wBtn = 220;
+    const hBtn = 60;
+
+    // Draw button
+    button(ctx, x, buttonY, wBtn, hBtn, "#f7d046", "#1b1b1b", t);
+
+    // Register clickable region
+    tabletOptionRegions.push({
+      x,
+      y: buttonY,
+      w: wBtn,
+      h: hBtn,
+      text: t
+    });
   });
 
+  // ---- TIMER ----
   ctx.fillStyle = "#c6c6c6";
   ctx.font = "bold 28px ui-monospace";
   ctx.fillText(`TIME: ${Math.max(0, timer)}s`, 36, 305);
 
   tabletTexture.needsUpdate = true;
 }
+
 
 // ===================================================
 // ================== SCOREBOARD =====================
@@ -204,7 +235,7 @@ function showAIDialogue(name, text) {
   const maxWidth = 240;
   const msg = (text || "…").trim();
 
-  // Measure lines BEFORE resizing
+  // ---- Pre-calc lines BEFORE resize ----
   plateCtx.font = "500 18px Inter";
   const words = msg.split(" ");
   let lines = [];
@@ -224,41 +255,40 @@ function showAIDialogue(name, text) {
   const lineHeight = 22;
   const totalHeight = Math.min(64 + lines.length * lineHeight, 160);
 
-  // ⚠️ Resize canvas — this wipes all context state
+  // ---- Resize canvas (this resets ALL context state!) ----
   plateCtx.canvas.height = totalHeight;
 
-  // Reapply all styles after resize
+  // ---- Reapply styles after resize ----
   plateCtx.fillStyle = "#000";
   plateCtx.fillRect(0, 0, 256, totalHeight);
 
-  // Draw name
+  // Name
   plateCtx.font = "bold 22px ui-monospace";
   plateCtx.fillStyle = "#f7d046";
   plateCtx.textAlign = "left";
   plateCtx.textBaseline = "top";
   plateCtx.fillText(`${baseName}:`, 12, 8);
 
-  // Draw dialogue
+  // Dialogue
   plateCtx.font = "500 18px Inter";
   plateCtx.fillStyle = "#ffffff";
-  let y = 36;
 
+  let y = 36;
   for (const l of lines) {
     plateCtx.fillText(l, 12, y);
     y += lineHeight;
   }
 
-  // Update texture now that drawing is done
   plateTex.needsUpdate = true;
 
-  // Correct geometry scaling
-  const pxToUnits = 0.3 / 64; // default plane height is 0.3 at 64px
+  // ---- FIXED SCALING HERE ----
+  const pxToUnits = 0.3 / 64;
   const newHeight = totalHeight * pxToUnits;
 
   plate.geometry.dispose();
   plate.geometry = new THREE.PlaneGeometry(1.2, newHeight);
 
-  // Auto-collapse after 4 sec
+  // ---- Reset after 4 seconds ----
   setTimeout(() => {
     plateCtx.canvas.height = 64;
 
@@ -277,8 +307,6 @@ function showAIDialogue(name, text) {
     plate.geometry = new THREE.PlaneGeometry(1.2, 0.3);
   }, 4000);
 }
-
-
 
 // ===================================================
 // ================== INIT SCENE =====================
@@ -476,6 +504,44 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
   scene.add(tabletMesh);
 
   drawTablet({ question: "Loading..." });
+    // ----- TABLET CLICK HANDLER -----
+  window.addEventListener("pointerdown", (event) => {
+
+    // Convert mouse pos to NDC
+    mouse.x =  (event.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+    raycaster.setFromCamera(mouse, camera);
+
+    const hits = raycaster.intersectObject(tabletMesh);
+    if (!hits.length) return;
+    
+    const hit = hits[0];
+
+    // Convert UV → canvas pixel coordinates
+    const uv = hit.uv;
+    const px = uv.x * 1024;
+    const py = (1 - uv.y) * 768;
+
+    // Check which option was clicked
+    for (const region of tabletOptionRegions) {
+      if (
+        px >= region.x &&
+        px <= region.x + region.w &&
+        py >= region.y &&
+        py <= region.y + region.h
+      ) {
+        // Fire event to solo.js
+        document.dispatchEvent(
+          new CustomEvent("solo-tablet-pick", {
+            detail: currentTabletOptions.find(o => o.text === region.text)
+          })
+        );
+        break;
+      }
+    }
+  });
+
 
   // --------------- MAC BRIGHTNESS PATCH ---------------
   const isMac = navigator.platform.toUpperCase().includes("MAC");
