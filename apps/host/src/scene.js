@@ -13,6 +13,11 @@ const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 let tabletOptionRegions = [];   // { x, y, w, h, text }
 let currentTabletOptions = [];  // store the actual option objects
+let selectedOptionId = null;
+let latestQuestionText = "";
+let latestTimerValue = 0;
+
+
 
 
 // name -> { body, plate, plateCtx, plateTex, baseName }
@@ -22,6 +27,8 @@ const playersMap = new Map();
 // =============== CANVAS DRAW HELPERS ===============
 // ===================================================
 function drawTablet({ title = "MAJORITY LOSS — SOLO", question = "", options = [], timer = 0 }) {
+  latestQuestionText = question;
+  latestTimerValue = timer;
   if (!ctx) return;
   const w = 1024, h = 768;
 
@@ -54,18 +61,23 @@ function drawTablet({ title = "MAJORITY LOSS — SOLO", question = "", options =
     const wBtn = 220;
     const hBtn = 60;
 
-    // Draw button
-    button(ctx, x, buttonY, wBtn, hBtn, "#f7d046", "#1b1b1b", t);
+    const isSelected = (selectedOptionId === i);
 
-    // Register clickable region
+    const bg = isSelected ? "#ffe27a" : "#1b1b1b";
+    const fg = isSelected ? "#000000" : "#f7d046";
+
+    button(ctx, x, buttonY, wBtn, hBtn, fg, bg, t);
+
     tabletOptionRegions.push({
       x,
       y: buttonY,
       w: wBtn,
       h: hBtn,
-      text: t
+      text: t,
+      id: i
     });
-  });
+});
+
 
   // ---- TIMER ----
   ctx.fillStyle = "#c6c6c6";
@@ -506,41 +518,47 @@ export function initScene(aiNames = ["You", "Yumeko", "L", "Yuuichi", "Chishiya"
   drawTablet({ question: "Loading..." });
     // ----- TABLET CLICK HANDLER -----
   window.addEventListener("pointerdown", (event) => {
+  mouse.x =  (event.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
-    // Convert mouse pos to NDC
-    mouse.x =  (event.clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
 
-    raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObject(tabletMesh);
+  if (!hits.length) return;
 
-    const hits = raycaster.intersectObject(tabletMesh);
-    if (!hits.length) return;
-    
-    const hit = hits[0];
+  const hit = hits[0];
+  const uv = hit.uv;
+  const px = uv.x * 1024;
+  const py = (1 - uv.y) * 768;
 
-    // Convert UV → canvas pixel coordinates
-    const uv = hit.uv;
-    const px = uv.x * 1024;
-    const py = (1 - uv.y) * 768;
+  for (const region of tabletOptionRegions) {
+    if (
+      px >= region.x &&
+      px <= region.x + region.w &&
+      py >= region.y &&
+      py <= region.y + region.h
+    ) {
+      // Store selection (highlight)
+      selectedOptionId = region.id;
+      drawTablet({
+        title: "MAJORITY LOSS — SOLO",
+        question: latestQuestionText,
+        options: currentTabletOptions.map(o => o.text),
+        timer: latestTimerValue
+      });
 
-    // Check which option was clicked
-    for (const region of tabletOptionRegions) {
-      if (
-        px >= region.x &&
-        px <= region.x + region.w &&
-        py >= region.y &&
-        py <= region.y + region.h
-      ) {
-        // Fire event to solo.js
-        document.dispatchEvent(
-          new CustomEvent("solo-tablet-pick", {
-            detail: currentTabletOptions.find(o => o.text === region.text)
-          })
-        );
-        break;
-      }
+      // Fire event to solo.js
+      document.dispatchEvent(
+        new CustomEvent("solo-tablet-pick", {
+          detail: currentTabletOptions.find(o => o.id === region.id)
+        })
+      );
+
+      break;
     }
-  });
+  }
+});
+
 
 
   // --------------- MAC BRIGHTNESS PATCH ---------------
