@@ -450,6 +450,7 @@ async function soloNextRound() {
 }
 // Listen to tablet picks
 document.addEventListener("solo-tablet-pick", (e) => {
+  if (screen != "solo") return;
   const opt = e.detail;
   if (!opt) return;
 
