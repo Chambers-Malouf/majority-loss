@@ -155,7 +155,7 @@ function joinRoom(code, name) {
     }
 
     myId = ack.playerId;
-    console.log("✅ Joined room. playerId:", myId);
+    myPlayerIdGlobal = myId;
 
     // now we're in the game space
     showInRoomOverlay();
