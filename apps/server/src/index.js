@@ -38,7 +38,6 @@ app.get("/healthz", (_req, res) =>
   res.json({ ok: true, build: "modular-v1" })
 );
 app.get("/", (_req, res) => res.status(200).send("OK"));
-console.log("DATABASE_URL =", process.env.RENDER_DATABASE_URL);
 
 // ===================================================
 // ================= USER PROFILE API ================

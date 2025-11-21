@@ -5,7 +5,7 @@ dotenv.config();
 const { Pool } = pg;
 
 export const pool = new Pool({
-  connectionString: process.env.RENDER_DATABASE_URL,
+  connectionString: process.env.DATABASE_URL,
   ssl:
     process.env.PGSSL?.toLowerCase() === "true"
       ? { rejectUnauthorized: false }
