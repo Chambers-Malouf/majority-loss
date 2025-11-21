@@ -1,16 +1,15 @@
-console.log("📸 scene.js loaded");
-let debugCameraAttached = false;
 // apps/host/src/scene/scene.js
 import * as THREE from "three";
 import { createAvatar } from "./avatar.js";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+
+console.log("📸 scene.js loaded (module imported)");
 
 let scene, camera, renderer;
 const avatars = new Map(); // playerId -> THREE.Group
 const readyBadges = new Map(); // playerId -> { sprite, state }
 const clock = new THREE.Clock();
 
-// 🔹 Which player is "me" on THIS device
+// 🔹 Which player is "me" on THIS device (from table.js myId)
 let myPlayerIdGlobal = null;
 
 // 🔹 Head look state (per device, only applied to my avatar)
@@ -23,12 +22,12 @@ let pitch = 0; // look up/down
 // Landscape overlay
 const ORIENTATION_OVERLAY_ID = "orientation-overlay";
 
+// Debug: to avoid spamming logs
+let debugCameraAttached = false;
+let lastHeadLogTime = 0;
+
 // Fixed 5-seat layout (you + 4 others)
 const TOTAL_SEATS = 5;
-/**
- * Angles for a curved jury bench, facing the camera.
- * We use a gentle arc from left to right.
- */
 const SEAT_ANGLES = (() => {
   const start = -Math.PI * 0.35; // left
   const end = Math.PI * 0.35; // right
@@ -102,9 +101,7 @@ function createReadySprite(state = "not-ready") {
   });
 
   const sprite = new THREE.Sprite(mat);
-  // width, height in world units (wider than tall = pill)
   sprite.scale.set(2.4, 0.7, 1);
-  // Default position relative to avatar root; we can tweak later
   sprite.position.set(0, 2.1, 0);
   sprite.userData.state = state;
   return sprite;
@@ -118,10 +115,7 @@ function updateOrientationOverlay() {
   const isPortrait = window.innerHeight > window.innerWidth;
 
   if (!isPortrait) {
-    // Remove overlay if present
-    if (overlay) {
-      overlay.remove();
-    }
+    if (overlay) overlay.remove();
     return;
   }
 
@@ -162,6 +156,7 @@ function onPointerDown(e) {
   pointerDown = true;
   lastPointerX = e.clientX;
   lastPointerY = e.clientY;
+  console.log("🖱 pointerdown at", lastPointerX, lastPointerY);
 }
 
 function onPointerMove(e) {
@@ -171,17 +166,25 @@ function onPointerMove(e) {
   lastPointerX = e.clientX;
   lastPointerY = e.clientY;
 
-  const sensitivity = 0.005; // tweak if too fast/slow
+  const sensitivity = 0.005;
   yaw -= dx * sensitivity;
   pitch -= dy * sensitivity;
 
-  // Clamp pitch so you can't snap your neck
   const maxPitch = 0.6;
   const minPitch = -0.6;
   pitch = Math.max(minPitch, Math.min(maxPitch, pitch));
+
+  const now = performance.now();
+  if (now - lastHeadLogTime > 300) {
+    lastHeadLogTime = now;
+    console.log("🎯 head look updated", { yaw: yaw.toFixed(2), pitch: pitch.toFixed(2) });
+  }
 }
 
 function onPointerUp() {
+  if (pointerDown) {
+    console.log("🖱 pointerup / pointercancel");
+  }
   pointerDown = false;
 }
 
@@ -191,6 +194,8 @@ function onPointerUp() {
 export function initScene(containerId = "table-app") {
   const container = document.getElementById(containerId);
   if (!container) throw new Error(`Missing container: #${containerId}`);
+
+  console.log("🏛 initScene called for container:", containerId);
 
   // ---------------- SCENE & RENDERER ----------------
   scene = new THREE.Scene();
@@ -202,12 +207,11 @@ export function initScene(containerId = "table-app") {
   });
   renderer.setPixelRatio(window.devicePixelRatio || 1);
   renderer.setSize(window.innerWidth, window.innerHeight);
-  if ("outputColorSpace" in renderer) {
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-  } else {
-    renderer.outputEncoding = THREE.sRGBEncoding;
-  }
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
   container.appendChild(renderer.domElement);
+
+  renderer.domElement.style.touchAction = "none"; // REQUIRED for mobile drag
+  console.log("🎨 renderer created, size:", window.innerWidth, "x", window.innerHeight);
 
   // ---------------- CAMERA ----------------
   camera = new THREE.PerspectiveCamera(
@@ -217,18 +221,10 @@ export function initScene(containerId = "table-app") {
     200
   );
 
-  // Default fallback view
+  // Default fallback view (before avatar is known)
   camera.position.set(0, 5.4, 13);
   camera.lookAt(0, 2.2, 0);
-
-  renderer.domElement.style.touchAction = "none"; // REQUIRED for mobile drag
-
-  // Re-enable temporary debugging controls
-  const controls = new OrbitControls(camera, renderer.domElement);
-  controls.enableZoom = false;
-  controls.enablePan = false;
-  controls.rotateSpeed = 0.95;
-  console.log("🖱 OrbitControls enabled");
+  console.log("📷 camera initialized with director view");
 
   // ---------------- LIGHTING ----------------
   const ambient = new THREE.AmbientLight(0xffffff, 1.2);
@@ -263,7 +259,6 @@ export function initScene(containerId = "table-app") {
   floor.position.y = 0;
   scene.add(floor);
 
-  // Raised circular "jury platform"
   const dais = new THREE.Mesh(
     new THREE.CylinderGeometry(5.2, 5.4, 0.8, 48),
     new THREE.MeshStandardMaterial({
@@ -275,7 +270,6 @@ export function initScene(containerId = "table-app") {
   dais.position.y = 1.2;
   scene.add(dais);
 
-  // Glowing trim ring
   const trimOuter = new THREE.Mesh(
     new THREE.TorusGeometry(5.5, 0.14, 24, 120),
     new THREE.MeshBasicMaterial({
@@ -300,7 +294,6 @@ export function initScene(containerId = "table-app") {
   trimInner.position.y = 1.4;
   scene.add(trimInner);
 
-  // Soft under-glow on floor
   const underGlow = new THREE.Mesh(
     new THREE.RingGeometry(5.8, 7.5, 54),
     new THREE.MeshBasicMaterial({
@@ -331,7 +324,6 @@ export function initScene(containerId = "table-app") {
   wall.position.y = 4;
   scene.add(wall);
 
-  // Neon arc behind the avatars (like a goofy "court of chaos" logo)
   const neonArc = new THREE.Mesh(
     new THREE.TorusGeometry(9, 0.25, 24, 120, Math.PI),
     new THREE.MeshBasicMaterial({
@@ -348,7 +340,6 @@ export function initScene(containerId = "table-app") {
   neonLight.position.set(0, 6.3, -6.8);
   scene.add(neonLight);
 
-  // "Judge desk" in front of camera (low, just flavor)
   const judgeDesk = new THREE.Mesh(
     new THREE.BoxGeometry(7, 1.2, 1),
     new THREE.MeshStandardMaterial({
@@ -374,7 +365,7 @@ export function initScene(containerId = "table-app") {
   window.addEventListener("resize", updateOrientationOverlay);
   updateOrientationOverlay();
 
-  // ---------------- START LOOP ----------------
+  console.log("✅ initScene complete, starting animation loop");
   animate();
 }
 
@@ -391,9 +382,12 @@ function onWindowResize() {
  * myPlayerId: id of "you" (passed from table.js as myId)
  */
 export function setPlayersOnTable(players, myPlayerId = null) {
-  console.log("🎯 setPlayersOnTable called", { players, myPlayerId });
+  console.log("🎯 setPlayersOnTable called", {
+    players: players.map((p) => ({ id: p.id, name: p.name })),
+    myPlayerId,
+  });
 
-  myPlayerIdGlobal = myPlayerId;  
+  myPlayerIdGlobal = myPlayerId || null;
   console.log("👉 myPlayerIdGlobal set to:", myPlayerIdGlobal);
 
   if (!scene) {
@@ -404,8 +398,6 @@ export function setPlayersOnTable(players, myPlayerId = null) {
   const limited = players.slice(0, TOTAL_SEATS);
   const currentIds = new Set(limited.map((p) => p.id));
 
-  console.log("🧍 Current players in scene:", limited.map(p => p.id));
-
   // Remove avatars no longer present
   for (const [id, group] of avatars.entries()) {
     if (!currentIds.has(id)) {
@@ -415,33 +407,31 @@ export function setPlayersOnTable(players, myPlayerId = null) {
     }
   }
 
-  // Position seats
   const radius = 4.8;
   limited.forEach((p, idx) => {
     let group = avatars.get(p.id);
 
     if (!group) {
-      console.log("➕ Adding new avatar:", p.id, p.name);
+      console.log("➕ Creating avatar for:", p.id, p.name);
       group = createAvatar(p.name || "BOT");
       avatars.set(p.id, group);
       scene.add(group);
     } else {
-      console.log("🔁 Avatar already exists:", p.id);
+      console.log("🔁 Reusing avatar for:", p.id);
     }
-
-    // Positioning log
-    console.log(`📌 Seat ${idx}: placing avatar ${p.id}`);
 
     const angle = SEAT_ANGLES[idx];
     const x = Math.sin(angle) * radius;
     const z = Math.cos(angle) * radius * 0.65;
 
     group.position.set(x, 1.6, z);
+    group.userData.baseY = 1.6;
+    group.userData.phase ??= Math.random() * Math.PI * 2;
+
     group.lookAt(0, 2.0, 0);
 
-    // Highlighting
     const isMe = myPlayerId && p.id === myPlayerId;
-    console.log(`💡 isMe check for ${p.id}:`, isMe);
+    console.log(`💡 isMe for ${p.id}:`, isMe);
   });
 }
 
@@ -459,13 +449,11 @@ export function updateReadyBadges(readyById = {}) {
     let badgeInfo = readyBadges.get(playerId);
 
     if (!badgeInfo) {
-      // Create new badge and attach to avatar
       const sprite = createReadySprite(desiredState);
       group.add(sprite);
       badgeInfo = { sprite, state: desiredState };
       readyBadges.set(playerId, badgeInfo);
     } else if (badgeInfo.state !== desiredState) {
-      // Update existing badge texture / colors
       const sprite = badgeInfo.sprite;
       const tex = makeBadgeTexture(
         desiredState === "ready" ? "READY ✔" : "NOT READY",
@@ -480,7 +468,6 @@ export function updateReadyBadges(readyById = {}) {
       badgeInfo.state = desiredState;
     }
 
-    // Ensure badge stays at correct offset (just in case)
     badgeInfo.sprite.position.set(0, 5.0, 0);
   }
 }
@@ -508,7 +495,7 @@ function updateCameraFollow() {
 
   if (!myPlayerIdGlobal) {
     if (!debugCameraAttached) {
-      console.log("🚫 No myPlayerIdGlobal — using director cam");
+      console.log("🚫 No myPlayerIdGlobal — staying in director cam");
       debugCameraAttached = true;
     }
     return;
@@ -517,7 +504,9 @@ function updateCameraFollow() {
   const avatar = avatars.get(myPlayerIdGlobal);
 
   if (!avatar) {
-    console.log("🟥 Avatar not found for myPlayerIdGlobal:", myPlayerIdGlobal);
+    if (!debugCameraAttached) {
+      console.log("🟥 Avatar not found for myPlayerIdGlobal:", myPlayerIdGlobal);
+    }
     return;
   }
 
@@ -542,31 +531,15 @@ function updateCameraFollow() {
 }
 
 /**
- * Main render loop – handles idle animation, head look, and camera follow.
+ * Main render loop – handles head look and camera follow.
+ * (No sway for playable avatars to keep POV stable.)
  */
 function animate() {
   requestAnimationFrame(animate);
   if (!renderer || !camera || !scene) return;
 
-  const t = clock.getElapsedTime();
-
-  // Bobble + idle motion for each avatar
-  for (const [playerId, group] of avatars.entries()) {
-    const baseY = group.userData.baseY ?? group.position.y;
-    const phase = group.userData.phase ?? 0;
-    const bob = Math.sin(t * 2 + phase) * 0.08;
-    group.position.y = baseY + bob;
-
-    // Tiny "listening" sway for OTHER robots only
-    if (playerId !== myPlayerIdGlobal) {
-      group.rotation.y = Math.sin(t * 0.6 + phase) * 0.15;
-    }
-  }
-
-  // Apply yaw/pitch to my robot's head
+  // No bob / sway on players — stable bodies
   updateHeadLook();
-
-  // Follow my avatar with the camera
   updateCameraFollow();
 
   renderer.render(scene, camera);

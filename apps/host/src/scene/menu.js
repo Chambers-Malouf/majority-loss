@@ -50,9 +50,10 @@ function makePosterTexture({ title, subtitle, bgColor, accentColor }) {
   ctx.fill();
   ctx.globalAlpha = 1;
 
-  // Title (spray-ish font look)
+  // Title
   ctx.fillStyle = "#ffffff";
-  ctx.font = "bold 68px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+  ctx.font =
+    "bold 68px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.shadowColor = "rgba(0,0,0,0.7)";
@@ -63,7 +64,8 @@ function makePosterTexture({ title, subtitle, bgColor, accentColor }) {
   if (subtitle) {
     ctx.shadowBlur = 0;
     ctx.fillStyle = "#ffe9b3";
-    ctx.font = "24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.font =
+      "24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
     ctx.fillText(subtitle, canvas.width / 2, canvas.height * 0.7);
   }
 
@@ -87,6 +89,11 @@ function createPoster(opts) {
   const mesh = new THREE.Mesh(geometry, material);
   mesh.userData.type = opts.type;
   mesh.userData.isPoster = true;
+  mesh.userData.action = opts.type === "multiplayer"
+    ? "multiplayer"
+    : opts.type === "solo"
+    ? "solo"
+    : null;
   posters.push(mesh);
   return mesh;
 }
@@ -145,11 +152,15 @@ function createSparks() {
 
 // ---------------------- INIT SCENE -------------------------
 
-export function initMainMenuScene(containerId = "table-app", { onMultiplayerClick } = {}) {
+export function initMainMenuScene(
+  containerId = "table-app",
+  { onMultiplayerClick } = {}
+) {
   containerEl = document.getElementById(containerId);
   if (!containerEl) throw new Error(`Missing container #${containerId}`);
 
-  onMultiplayerClickCb = typeof onMultiplayerClick === "function" ? onMultiplayerClick : null;
+  onMultiplayerClickCb =
+    typeof onMultiplayerClick === "function" ? onMultiplayerClick : null;
 
   // Clean up any previous canvas in the container
   while (containerEl.firstChild) {
@@ -166,8 +177,7 @@ export function initMainMenuScene(containerId = "table-app", { onMultiplayerClic
     antialias: true,
     powerPreference: "high-performance",
   });
-  console.log("Renderer added:", renderer.domElement);
-console.log("Renderer size:", renderer.domElement.width, renderer.domElement.height);
+  console.log("Renderer created:", renderer.domElement);
 
   renderer.setPixelRatio(window.devicePixelRatio || 1);
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -176,11 +186,7 @@ console.log("Renderer size:", renderer.domElement.width, renderer.domElement.hei
   renderer.domElement.style.pointerEvents = "auto";
   renderer.domElement.style.touchAction = "none";
 
-  if ("outputColorSpace" in renderer) {
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-  } else {
-    renderer.outputEncoding = THREE.sRGBEncoding;
-  }
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
   containerEl.appendChild(renderer.domElement);
 
   // Camera — mid-range, facing back wall (posters)
@@ -193,18 +199,13 @@ console.log("Renderer size:", renderer.domElement.width, renderer.domElement.hei
   camera.position.set(0, 4, 12);
   camera.lookAt(0, 3, -4);
 
-  // --------- LIGHTING: make hallway not pitch black ----------
+  // --------- LIGHTING ----------
   const ambient = new THREE.AmbientLight(0xffffff, 0.55);
   scene.add(ambient);
 
   const key = new THREE.DirectionalLight(0xffffff, 1.4);
   key.position.set(6, 7, 8);
   scene.add(key);
-
-  const blueStrip = new THREE.RectAreaLight(0x4f46e5, 4.5, 0.4, 1.0);
-  blueStrip.position.set(0, 6.8, -3.5);
-  blueStrip.lookAt(0, 0, -4.5);
-  scene.add(blueStrip);
 
   const magentaFill = new THREE.PointLight(0xf97316, 1.3, 40);
   magentaFill.position.set(-10, 4, -1);
@@ -214,7 +215,7 @@ console.log("Renderer size:", renderer.domElement.width, renderer.domElement.hei
   tealFill.position.set(10, 4, -1);
   scene.add(tealFill);
 
-  // --------- HALLWAY GEOMETRY (left↔right) ------------------
+  // --------- HALLWAY GEOMETRY ----------
 
   // Floor
   const floor = new THREE.Mesh(
@@ -286,7 +287,7 @@ console.log("Renderer size:", renderer.domElement.width, renderer.domElement.hei
   posterGlow.position.set(0, 6.4, -5.8);
   scene.add(posterGlow);
 
-  // --------- POSTERS ----------------------------------------
+  // --------- POSTERS ----------
 
   const soloPoster = createPoster({
     type: "solo",
@@ -295,8 +296,6 @@ console.log("Renderer size:", renderer.domElement.width, renderer.domElement.hei
     bgColor: "#1d4ed8",
     accentColor: "#22c55e",
   });
-  soloPoster.userData.type = "solo";
-  soloPoster.userData.action = "solo";
   soloPoster.position.set(-7, 3.3, -5.9);
   scene.add(soloPoster);
 
@@ -307,8 +306,6 @@ console.log("Renderer size:", renderer.domElement.width, renderer.domElement.hei
     bgColor: "#facc15",
     accentColor: "#ef4444",
   });
-  titlePoster.userData.type = "title";
-  titlePoster.userData.action = null;
   titlePoster.position.set(0, 3.3, -5.9);
   scene.add(titlePoster);
 
@@ -319,8 +316,6 @@ console.log("Renderer size:", renderer.domElement.width, renderer.domElement.hei
     bgColor: "#b91c1c",
     accentColor: "#f97316",
   });
-  multiPoster.userData.type = "multiplayer";
-  multiPoster.userData.action = "multiplayer";
   multiPoster.position.set(7, 3.3, -5.9);
   scene.add(multiPoster);
 
@@ -329,28 +324,23 @@ console.log("Renderer size:", renderer.domElement.width, renderer.domElement.hei
     p.rotation.x = -0.05;
   });
 
-  // --------- ROBOTS (some hover, some walk) -----------------
-  // center "greeter" robot
-  spawnRobot({ x: 0, z: -3, hover: true });
-
-  // left side walkers
+  // --------- ROBOTS (some hover, some walk) ----------
+  spawnRobot({ x: 0, z: -3, hover: true }); // center greeter
   spawnRobot({ x: -10, z: -1.5, hover: false });
   spawnRobot({ x: -5, z: -2.5, hover: false });
-
-  // right side mixed
   spawnRobot({ x: 5, z: -1.3, hover: true });
   spawnRobot({ x: 11, z: -2.2, hover: false });
 
-  // --------- SPARKS -----------------------------------------
+  // --------- SPARKS ----------
   const sparks = createSparks();
   sparks.userData.isSparks = true;
 
-  // --------- EVENTS -----------------------------------------
+  // --------- EVENTS ----------
   window.addEventListener("resize", onWindowResize);
   renderer.domElement.addEventListener("pointermove", onPointerMove);
   renderer.domElement.addEventListener("click", onClickPoster);
 
-  // --------- START LOOP -------------------------------------
+  // --------- START LOOP ----------
   animate();
 }
 
@@ -372,7 +362,6 @@ export function disposeMainMenuScene() {
     containerEl.removeChild(renderer.domElement);
   }
 
-  // Simple cleanup: let GC clear scene/geometry (good enough for one-time switch)
   scene = null;
   camera = null;
   renderer = null;
@@ -406,7 +395,6 @@ function onPointerMove(event) {
   }
 
   if (hoveredPoster !== newHover) {
-    // reset old hover
     if (hoveredPoster) {
       hoveredPoster.scale.set(1, 1, 1);
       hoveredPoster.material.emissiveIntensity = 0.9;
@@ -420,10 +408,9 @@ function onPointerMove(event) {
 }
 
 function onClickPoster(event) {
-  renderer.domElement.addEventListener("mousedown", () => {
-  console.log("MOUSEDOWN DETECTED");
-});
   if (!renderer || !camera) return;
+
+  console.log("🖱 CLICK on menu canvas");
 
   const rect = renderer.domElement.getBoundingClientRect();
   mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -431,18 +418,20 @@ function onClickPoster(event) {
 
   raycaster.setFromCamera(mouse, camera);
   const intersects = raycaster.intersectObjects(posters, false);
-  if (!intersects.length) return;
+  if (!intersects.length) {
+    console.log("❌ Clicked, but no poster hit");
+    return;
+  }
 
   const obj = intersects[0].object;
   const action = obj.userData.action;
+  console.log("✅ Poster clicked:", action, obj.userData);
 
-    if (action === "multiplayer" && onMultiplayerClickCb) {
+  if (action === "multiplayer" && onMultiplayerClickCb) {
     onMultiplayerClickCb();
-    }
-    if (action === "solo") {
+  } else if (action === "solo") {
     alert("Solo mode coming soon!");
-    }
-    console.log("clicked poster action =", action);
+  }
 }
 
 // ---------------------- ANIMATION LOOP ---------------------
@@ -454,17 +443,15 @@ function animate() {
   const dt = clock.getDelta();
   const t = clock.getElapsedTime();
 
-  // ROBOT motion
+  // ROBOT motion (keep sway / hover / walking)
   for (const bot of robots) {
     const data = bot.userData;
     if (!data) continue;
 
-    // Occasionally stop & "inspect" the player
     if (data.stopTimer > 0) {
       data.stopTimer -= dt;
       bot.rotation.y = Math.sin(t * 1.2 + data.phase) * 0.3;
     } else {
-      // Move left/right
       bot.position.x += data.direction * data.speed * dt;
       if (bot.position.x < data.minX) {
         bot.position.x = data.minX;
@@ -474,16 +461,13 @@ function animate() {
         data.direction *= -1;
       }
 
-      // Random chance to pause
       if (Math.random() < 0.0015) {
         data.stopTimer = 1.5 + Math.random() * 1.5;
       }
 
-      // Face direction of travel
       bot.rotation.y = data.direction > 0 ? -Math.PI / 2 : Math.PI / 2;
     }
 
-    // Hover vs "walk" feel
     if (data.hover) {
       const bob = Math.sin(t * 2 + data.phase) * 0.15;
       bot.position.y = data.baseY + bob;
@@ -493,8 +477,7 @@ function animate() {
     }
   }
 
-  // Tiny ambient camera sway to keep scene alive
-  camera.position.x = Math.sin(t * 0.15) * 0.5;
+  // Camera stays fixed (no sway); just keep it looking at posters
   camera.lookAt(0, 3, -4);
 
   renderer.render(scene, camera);
