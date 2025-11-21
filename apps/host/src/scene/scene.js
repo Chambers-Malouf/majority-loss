@@ -1,6 +1,9 @@
+console.log("📸 scene.js loaded");
+let debugCameraAttached = false;
 // apps/host/src/scene/scene.js
 import * as THREE from "three";
 import { createAvatar } from "./avatar.js";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 let scene, camera, renderer;
 const avatars = new Map(); // playerId -> THREE.Group
@@ -213,9 +216,19 @@ export function initScene(containerId = "table-app") {
     0.1,
     200
   );
-  // Default director view (fallback when not attached to an avatar)
+
+  // Default fallback view
   camera.position.set(0, 5.4, 13);
   camera.lookAt(0, 2.2, 0);
+
+  renderer.domElement.style.touchAction = "none"; // REQUIRED for mobile drag
+
+  // Re-enable temporary debugging controls
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableZoom = false;
+  controls.enablePan = false;
+  controls.rotateSpeed = 0.95;
+  console.log("🖱 OrbitControls enabled");
 
   // ---------------- LIGHTING ----------------
   const ambient = new THREE.AmbientLight(0xffffff, 1.2);
@@ -378,64 +391,57 @@ function onWindowResize() {
  * myPlayerId: id of "you" (passed from table.js as myId)
  */
 export function setPlayersOnTable(players, myPlayerId = null) {
-  if (!scene) return;
+  console.log("🎯 setPlayersOnTable called", { players, myPlayerId });
+
+  myPlayerIdGlobal = myPlayerId;  
+  console.log("👉 myPlayerIdGlobal set to:", myPlayerIdGlobal);
+
+  if (!scene) {
+    console.warn("⚠️ Scene not ready yet, cannot place players");
+    return;
+  }
+
   const limited = players.slice(0, TOTAL_SEATS);
   const currentIds = new Set(limited.map((p) => p.id));
 
-  // Track who "I" am for POV cam on this device
-  myPlayerIdGlobal = myPlayerId || null;
+  console.log("🧍 Current players in scene:", limited.map(p => p.id));
 
-  // Remove avatars (and badges) for players who left
+  // Remove avatars no longer present
   for (const [id, group] of avatars.entries()) {
     if (!currentIds.has(id)) {
+      console.log("❌ Removing avatar for ID:", id);
       scene.remove(group);
       avatars.delete(id);
-
-      const badgeInfo = readyBadges.get(id);
-      if (badgeInfo) {
-        group.remove(badgeInfo.sprite);
-        if (badgeInfo.sprite.material.map) {
-          badgeInfo.sprite.material.map.dispose();
-        }
-        badgeInfo.sprite.material.dispose();
-        readyBadges.delete(id);
-      }
     }
   }
 
-  // Position avatars into fixed seat slots
+  // Position seats
   const radius = 4.8;
-  const seatCount = TOTAL_SEATS;
-
   limited.forEach((p, idx) => {
     let group = avatars.get(p.id);
+
     if (!group) {
+      console.log("➕ Adding new avatar:", p.id, p.name);
       group = createAvatar(p.name || "BOT");
       avatars.set(p.id, group);
       scene.add(group);
+    } else {
+      console.log("🔁 Avatar already exists:", p.id);
     }
 
-    const seatIndex = Math.min(idx, seatCount - 1);
-    const angle = SEAT_ANGLES[seatIndex];
+    // Positioning log
+    console.log(`📌 Seat ${idx}: placing avatar ${p.id}`);
 
+    const angle = SEAT_ANGLES[idx];
     const x = Math.sin(angle) * radius;
-    const z = Math.cos(angle) * radius * 0.65; // squish toward camera
-    const baseY = 1.6; // standing on dais
+    const z = Math.cos(angle) * radius * 0.65;
 
-    group.position.set(x, baseY, z);
-    group.userData.baseY = baseY;
-    group.userData.phase ??= Math.random() * Math.PI * 2;
-
-    // Make them scoot slightly inward and face center
+    group.position.set(x, 1.6, z);
     group.lookAt(0, 2.0, 0);
 
-    // Highlight "you" with blue emissive
+    // Highlighting
     const isMe = myPlayerId && p.id === myPlayerId;
-    group.traverse((obj) => {
-      if (obj.isMesh && obj.material && obj.material.emissive) {
-        obj.material.emissive.setHex(isMe ? 0x3b82f6 : 0x111111);
-      }
-    });
+    console.log(`💡 isMe check for ${p.id}:`, isMe);
   });
 }
 
@@ -500,32 +506,37 @@ function updateHeadLook() {
 function updateCameraFollow() {
   if (!camera) return;
 
-  if (!myPlayerIdGlobal || !avatars.has(myPlayerIdGlobal)) {
-    // Fallback: classic director view
-    camera.position.set(0, 5.4, 13);
-    camera.lookAt(0, 2.2, 0);
+  if (!myPlayerIdGlobal) {
+    if (!debugCameraAttached) {
+      console.log("🚫 No myPlayerIdGlobal — using director cam");
+      debugCameraAttached = true;
+    }
     return;
   }
 
   const avatar = avatars.get(myPlayerIdGlobal);
-  if (!avatar) return;
 
-  const headGroup = avatar.userData.headGroup || avatar;
+  if (!avatar) {
+    console.log("🟥 Avatar not found for myPlayerIdGlobal:", myPlayerIdGlobal);
+    return;
+  }
 
-  // Make sure world matrix is up to date
-  headGroup.updateWorldMatrix(true, false);
+  if (!debugCameraAttached) {
+    console.log("📸 Attaching camera to avatar ID:", myPlayerIdGlobal);
+    debugCameraAttached = true;
+  }
 
-  // Camera a bit in front of the face
-  const camOffset = new THREE.Vector3(0, 0.1, 0.8);
-  const lookOffset = new THREE.Vector3(0, 0.0, 2.0);
+  avatar.updateWorldMatrix(true, false);
 
-  const worldCamPos = camOffset.clone();
+  const headOffset = new THREE.Vector3(0, 3.1, 1.25);
+  const lookOffset = new THREE.Vector3(0, 3.0, 0.2);
+
+  const worldCamPos = headOffset.clone();
   const worldLookPos = lookOffset.clone();
 
-  headGroup.localToWorld(worldCamPos);
-  headGroup.localToWorld(worldLookPos);
+  avatar.localToWorld(worldCamPos);
+  avatar.localToWorld(worldLookPos);
 
-  // Smooth follow
   camera.position.lerp(worldCamPos, 0.25);
   camera.lookAt(worldLookPos);
 }
