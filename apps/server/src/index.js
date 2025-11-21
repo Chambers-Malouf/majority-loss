@@ -1,3 +1,6 @@
+import dotenv from "dotenv";
+dotenv.config();
+// apps/server/src/index.js
 // ====================================================
 // ================ IMPORTS & CONFIG ==================
 // ====================================================
@@ -5,108 +8,20 @@ import express from "express";
 import http from "http";
 import { Server } from "socket.io";
 import cors from "cors";
-import dotenv from "dotenv";
-import pg from "pg";
+import { pool } from "./db.js";
+import { getRandomQuestionWithOptions } from "./questions.js";
+import {
+  rooms,
+  createRoomWithGame,
+  broadcastRoomState,
+} from "./rooms.js";
+import { addPlayer } from "./db.js";
+import { startRound } from "./gameLoop.js";
 
-// Polyfill fetch if not available
+// Polyfill fetch if needed (Render / Node 18 safety)
 if (typeof fetch === "undefined") {
   global.fetch = (await import("node-fetch")).default;
 }
-
-const MAX_ROUNDS = 10;
-dotenv.config();
-
-const { Pool } = pg;
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl:
-    process.env.PGSSL?.toLowerCase() === "true"
-      ? { rejectUnauthorized: false }
-      : false,
-});
-
-// ===================================================
-// ================= DATABASE HELPERS ================
-// ===================================================
-
-async function getOrCreateGameByCode(code, maxPoints = 5) {
-  const q = `
-    INSERT INTO games (code, max_points)
-    VALUES ($1, $2)
-    ON CONFLICT (code) DO UPDATE SET
-      max_points = EXCLUDED.max_points
-    RETURNING id, code, status, max_points
-  `;
-  const { rows } = await pool.query(q, [code, maxPoints]);
-  return rows[0];
-}
-
-async function addPlayer(gameId, displayName = "Player") {
-  const q = `
-    INSERT INTO player_game (game_id, display_name, points)
-    VALUES ($1, $2, 0)
-    RETURNING id, game_id, display_name, points
-  `;
-  const { rows } = await pool.query(q, [gameId, displayName]);
-  return rows[0];
-}
-
-async function getRandomQuestionWithOptions() {
-  const qSql = `SELECT id, text FROM questions ORDER BY random() LIMIT 1`;
-  const qRes = await pool.query(qSql);
-  if (!qRes.rows.length) throw new Error("no_questions");
-
-  const q = qRes.rows[0];
-  const oSql = `SELECT id, text FROM options WHERE question_id = $1 ORDER BY id`;
-  const oRes = await pool.query(oSql, [q.id]);
-
-  return {
-    id: q.id,
-    text: q.text,
-    options: oRes.rows.map((r) => ({ id: r.id, text: r.text })),
-  };
-}
-// ===================================================
-// ============ MISSION DATABASE HELPERS =============
-// ===================================================
-async function logMission({
-  userId,
-  gameId,
-  roundNumber,
-  type,
-  targetUserId = null,
-  targetOptionId = null
-}) {
-  const q = `
-    INSERT INTO missions (user_id, game_id, round_number, type, target_user_id, target_option_id)
-    VALUES ($1, $2, $3, $4, $5, $6)
-    RETURNING id;
-  `;
-  const { rows } = await pool.query(q, [
-    userId,
-    gameId,
-    roundNumber,
-    type,
-    targetUserId,
-    targetOptionId
-  ]);
-  return rows[0].id;
-}
-
-async function completeMission(missionId, success, bonusPoints) {
-  const q = `
-    UPDATE missions
-    SET success = $1,
-        bonus_points = $2
-    WHERE id = $3
-  `;
-  await pool.query(q, [success, bonusPoints, missionId]);
-}
-
-
-// ===================================================
-// ================= EXPRESS SETUP ===================
-// ===================================================
 const app = express();
 const PORT = process.env.PORT || 8080;
 const CORS_ORIGIN = (process.env.CORS_ORIGIN || "*")
@@ -114,20 +29,21 @@ const CORS_ORIGIN = (process.env.CORS_ORIGIN || "*")
   .map((s) => s.trim());
 
 app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
-
-app.get("/healthz", (_req, res) => res.json({ ok: true, build: "clean-v1" }));
-app.get("/", (_, res) => res.status(200).send("OK"));
+app.use(express.json());
 
 // ===================================================
-// ================== API ENDPOINTS ==================
+// ================= HEALTH & ROOT ===================
 // ===================================================
+app.get("/healthz", (_req, res) =>
+  res.json({ ok: true, build: "modular-v1" })
+);
+app.get("/", (_req, res) => res.status(200).send("OK"));
+console.log("DATABASE_URL =", process.env.RENDER_DATABASE_URL);
+
 // ===================================================
 // ================= USER PROFILE API ================
 // ===================================================
 
-app.use(express.json());
-
-// Create or update profile safely
 app.post("/api/profile", async (req, res) => {
   try {
     const { display_name, avatar_url } = req.body || {};
@@ -137,7 +53,7 @@ app.post("/api/profile", async (req, res) => {
 
     console.log("🟢 /api/profile request:", display_name);
 
-    // STEP 1: find existing user or insert new one
+    // find existing or create new user
     let userId;
     const existing = await pool.query(
       `SELECT id FROM users WHERE LOWER(display_name) = LOWER($1)`,
@@ -156,7 +72,6 @@ app.post("/api/profile", async (req, res) => {
       console.log("✅ New user created:", userId);
     }
 
-    // STEP 2: create or update profile row
     const profRes = await pool.query(
       `
       INSERT INTO profiles (user_id, avatar_url)
@@ -176,7 +91,6 @@ app.post("/api/profile", async (req, res) => {
   }
 });
 
-// Get profile by name
 app.get("/api/profile/:name", async (req, res) => {
   try {
     const name = req.params.name.trim();
@@ -197,19 +111,27 @@ app.get("/api/profile/:name", async (req, res) => {
   }
 });
 
-
+// ===================================================
+// ================= SOLO / AI ROUTES ================
+// ===================================================
 
 app.get("/api/solo/question", async (_req, res) => {
   try {
     const q = await getRandomQuestionWithOptions();
-    res.json({ ok: true, question: { id: q.id, text: q.text }, options: q.options });
+    res.json({
+      ok: true,
+      question: { id: q.id, text: q.text },
+      options: q.options,
+    });
   } catch (e) {
     console.error("❌ Failed to fetch solo question:", e);
     res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
 });
 
-app.post("/api/ai-round", express.json(), async (req, res) => {
+let io; // defined after server creation, but referenced in handler below
+
+app.post("/api/ai-round", async (req, res) => {
   const { question, options, aiName, aiPersonality, roomId } = req.body || {};
   if (!question?.text || !Array.isArray(options)) {
     return res.status(400).json({ error: "BAD_INPUT" });
@@ -243,7 +165,9 @@ app.post("/api/ai-round", express.json(), async (req, res) => {
           },
           {
             role: "user",
-            content: `${question.text}\nOptions: ${options.map((o) => o.text).join(", ")}`,
+            content: `${question.text}\nOptions: ${options
+              .map((o) => o.text)
+              .join(", ")}`,
           },
         ],
       }),
@@ -283,261 +207,9 @@ app.post("/api/ai-round", express.json(), async (req, res) => {
 // ================= SOCKET SETUP ====================
 // ===================================================
 const server = http.createServer(app);
-const io = new Server(server, {
+io = new Server(server, {
   cors: { origin: CORS_ORIGIN, methods: ["GET", "POST"] },
 });
-
-// ===================================================
-// ================= GAME STATE LOGIC ================
-// ===================================================
-const rooms = new Map();
-
-function makeRoomId() {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let s = "";
-  for (let i = 0; i < 6; i++) s += alphabet[Math.floor(Math.random() * alphabet.length)];
-  return s;
-}
-
-function sendRoomState(roomId) {
-  const room = rooms.get(roomId);
-  if (!room) return;
-  const players = Array.from(room.players.values());
-  io.to(roomId).emit("room_state", { roomId, players });
-}
-
-// ===================================================
-// ================= ROUND HANDLER ===================
-// ===================================================
-async function startRound(roomId, durationSec = 20) {
-  const room = rooms.get(roomId);
-  if (!room) return;
-
-  if (room.timer) clearInterval(room.timer);
-
-  room.roundNumber = (room.roundNumber || 0) + 1;
-  if (room.roundNumber > MAX_ROUNDS) {
-    const leaderboard = Array.from(room.players.values())
-      .sort((a, b) => b.points - a.points)
-      .map((p) => ({ name: p.name, points: p.points }));
-
-    io.to(roomId).emit("game_over", { leaderboard });
-
-    if (room.timer) clearInterval(room.timer);
-    room.round = null;
-    room.roundVotes = new Map();
-    room.roundNumber = 0;
-    return;
-  }
-
-  // Fetch a question
-  const q = await getRandomQuestionWithOptions();
-  room.round = {
-    id: Date.now().toString(),
-    roundNumber: room.roundNumber,
-    question: { id: q.id, text: q.text },
-    options: q.options,
-  };
-  room.roundVotes = new Map();
-
-  io.to(roomId).emit("round_question", {
-    roundId: room.round.id,
-    roundNumber: room.round.roundNumber,
-    question: room.round.question,
-    options: room.round.options,
-  });
-
-  // ====== SECRET MISSION ASSIGNMENTS ======
-  const missionPool = ["INFLUENCE", "ISOLATION", "BONDED", "COUNTER", "SEER"];
-  const playersArr = Array.from(room.players.values());
-
-  const numMissions = Math.floor(Math.random() * 3) + 1; // 1–3 players get missions
-  const chosen = playersArr.sort(() => Math.random() - 0.5).slice(0, numMissions);
-
-  for (const player of chosen) {
-    const type = missionPool[Math.floor(Math.random() * missionPool.length)];
-    let target = null;
-    let option = null;
-
-    if (["INFLUENCE", "BONDED", "COUNTER", "SEER"].includes(type)) {
-      target = playersArr.filter(p => p.id !== player.id)[Math.floor(Math.random() * (playersArr.length - 1))];
-    }
-    if (type === "INFLUENCE") {
-      option = room.round.options[Math.floor(Math.random() * room.round.options.length)].id;
-    }
-
-    player.mission = {
-      id: null,
-      type,
-      targetId: target?.id || null,
-      targetName: target?.name || null,
-      optionId: option || null,
-      success: false,
-      bonusPoints: 0
-    };
-
-    try {
-      const missionId = await logMission({
-        userId: player.playerGameId,
-        gameId: room.gameId,
-        roundNumber: room.roundNumber,
-        type,
-        targetUserId: target?.playerGameId || null,
-        targetOptionId: option || null
-      });
-      player.mission.id = missionId;
-    } catch (err) {
-      console.error("❌ Failed to log mission:", err);
-    }
-
-    io.to(player.id).emit("mission_assigned", player.mission);
-  }
-
-  // ====== ROUND TIMER START ======
-  const D = Math.max(1, Math.min(300, Number(durationSec) || 20));
-  room.endAt = Date.now() + D * 1000;
-
-  room.timer = setInterval(async () => {
-    const remaining = Math.max(0, Math.ceil((room.endAt - Date.now()) / 1000));
-    io.to(roomId).emit("round_tick", { remaining });
-
-    if (remaining <= 0) {
-      clearInterval(room.timer);
-      room.timer = null;
-      room.endAt = null;
-
-      // ====== COUNT VOTES ======
-      const countsMap = new Map();
-      for (const opt of room.round.options) countsMap.set(String(opt.id), 0);
-      for (const optId of room.roundVotes.values()) {
-        countsMap.set(String(optId), (countsMap.get(String(optId)) || 0) + 1);
-      }
-
-      const counts = [];
-      for (const [optionId, count] of countsMap.entries()) {
-        const opt = room.round.options.find((o) => o.id === Number(optionId));
-        if (opt) counts.push({ optionId: Number(optionId), count, text: opt.text });
-      }
-
-      let winningOptionId = null;
-      const nonzero = counts.filter((c) => c.count > 0);
-      if (nonzero.length > 0) {
-        const min = Math.min(...nonzero.map((c) => c.count));
-        const losers = nonzero.filter((c) => c.count === min);
-        if (losers.length === 1) winningOptionId = losers[0].optionId;
-      }
-
-      const votes = [];
-      for (const [socketId, optionId] of room.roundVotes.entries()) {
-        const player = room.players.get(socketId);
-        votes.push({ playerId: socketId, playerName: player.name, optionId });
-      }
-
-      // ====== APPLY POINTS + MISSIONS ======
-      const missionResults = [];
-
-      for (const [socketId, optionId] of room.roundVotes.entries()) {
-        const player = room.players.get(socketId);
-        if (!player) continue;
-
-        // Normal scoring
-        if (optionId === winningOptionId) {
-          player.points += 1;
-          await pool.query(
-            `UPDATE player_game SET points = $1 WHERE id = $2`,
-            [player.points, player.playerGameId]
-          );
-        }
-
-        // Mission scoring
-        const mission = player.mission;
-        if (mission) {
-          let success = false;
-          let bonus = 0;
-
-          switch (mission.type) {
-            case "INFLUENCE": {
-              const targetVote = room.roundVotes.get(mission.targetId);
-              if (targetVote === mission.optionId) {
-                success = true;
-                bonus = 1;
-              }
-              break;
-            }
-            case "ISOLATION": {
-              const sameVotes = [...room.roundVotes.values()].filter(v => v === optionId).length;
-              if (sameVotes === 1) {
-                success = true;
-                bonus = 2;
-              }
-              break;
-            }
-            case "BONDED": {
-              const targetVote = room.roundVotes.get(mission.targetId);
-              const target = room.players.get(mission.targetId);
-              if (targetVote === optionId) {
-                success = true;
-                bonus = 1;
-                if (target) target.points = Math.max(0, target.points - 1);
-              } else {
-                success = false;
-                bonus = -1;
-                if (target) target.points += 1;
-              }
-              break;
-            }
-            case "COUNTER": {
-              const targetVote = room.roundVotes.get(mission.targetId);
-              if (targetVote && targetVote !== optionId) {
-                success = true;
-                bonus = 1;
-              }
-              break;
-            }
-            case "SEER":
-              // SEER handled manually by player during the round
-              break;
-          }
-
-          // Apply
-          player.mission.success = success;
-          player.mission.bonusPoints = bonus;
-          player.points += bonus;
-
-          if (mission.id) {
-            await completeMission(mission.id, success, bonus);
-          }
-
-          missionResults.push({
-            name: player.name,
-            type: mission.type,
-            targetName: mission.targetName,
-            success,
-            bonus
-          });
-        }
-      }
-
-      // ====== EMIT RESULTS WITH MISSIONS ======
-      io.to(roomId).emit("round_results", {
-        roundId: room.round.id,
-        winningOptionId,
-        counts,
-        votes,
-        leaderboard: Array.from(room.players.values()).map((p) => ({
-          name: p.name,
-          points: p.points,
-        })),
-        missionResults   // <<<<< NEW
-      });
-
-      room.round = null;
-      room.roundVotes = new Map();
-    }
-  }, 1000);
-}
-
-
 
 // ===================================================
 // ================= SOCKET HANDLERS =================
@@ -545,58 +217,112 @@ async function startRound(roomId, durationSec = 20) {
 io.on("connection", (socket) => {
   console.log("⚡ Client connected:", socket.id);
 
+  // ---------- HOST CREATE ----------
   socket.on("host_create", async (ack) => {
-    let roomId;
-    do {
-      roomId = makeRoomId();
-    } while (rooms.has(roomId));
+    try {
+      const { roomId, gameId } = await createRoomWithGame();
 
-    const game = await getOrCreateGameByCode(roomId, 5);
+      socket.join(roomId);
+      console.log(`🧩 Room created: ${roomId} (game id: ${gameId})`);
 
-    rooms.set(roomId, {
-      roomId,
-      players: new Map(),
-      round: null,
-      timer: null,
-      endAt: null,
-      gameId: game.id,
-    });
-
-    socket.join(roomId);
-    console.log(`🧩 Room created: ${roomId} (game id: ${game.id})`);
-    ack?.({ roomId, gameId: game.id });
+      ack?.({ roomId, gameId });
+    } catch (err) {
+      console.error("❌ host_create failed:", err);
+      ack?.({ error: "HOST_CREATE_FAILED" });
+    }
   });
 
-  socket.on("start_game", ({ roomId, duration } = {}, ack) => {
+  // ---------- START GAME ----------
+    socket.on("start_game", ({ roomId, duration } = {}, ack) => {
+      const room = rooms.get(roomId);
+      if (!room) return ack?.({ error: "ROOM_NOT_FOUND" });
+      if (!room.players.has(socket.id)) return ack?.({ error: "NOT_IN_ROOM" });
+
+      // 🟢 Reset previous round state
+      room.roundVotes = new Map();
+      room.round = null;
+
+      startRound(io, roomId, duration || 10)
+        .then(() => {
+          room.ready = new Map();
+          ack?.({ ok: true });
+        })
+        .catch((err) => {
+          console.error("❌ start_game failed:", err);
+          ack?.({ error: "START_FAILED" });
+        });
+    });
+
+  // ---------- JOIN ROOM ----------
+  socket.on("join_room", async ({ roomId, name }, ack) => {
+    try {
+      const room = rooms.get(roomId);
+      if (!room) return ack?.({ error: "ROOM_NOT_FOUND" });
+
+      const p = await addPlayer(room.gameId, (name || "Player").trim());
+      room.players.set(socket.id, {
+        id: socket.id,
+        name: p.display_name,
+        playerGameId: p.playerGameId,
+        points: p.points,
+        mission: null,
+      });
+
+      // Make sure ready map exists and mark this player as NOT READY initially
+      if (!room.ready) room.ready = new Map();
+      room.ready.set(socket.id, false);
+
+      socket.join(roomId);
+      broadcastRoomState(io, roomId);
+
+      // Send current ready state to everyone
+      const readyObj = {};
+      for (const [pid, val] of room.ready.entries()) {
+        readyObj[pid] = !!val;
+      }
+      io.to(roomId).emit("ready_state", {
+        ready: readyObj,
+        allReady: computeAllReady(room),
+      });
+
+      ack?.({ ok: true, playerId: socket.id });
+    } catch (err) {
+      console.error("❌ join_room failed:", err);
+      ack?.({ error: "JOIN_FAILED" });
+    }
+  });
+
+  // ---------- PLAYER READY ----------
+  socket.on("player_ready", ({ roomId } = {}, ack) => {
     const room = rooms.get(roomId);
     if (!room) return ack?.({ error: "ROOM_NOT_FOUND" });
     if (!room.players.has(socket.id)) return ack?.({ error: "NOT_IN_ROOM" });
 
-    startRound(roomId, duration || 10);
+    if (!room.ready) room.ready = new Map();
+    room.ready.set(socket.id, true);
+
+    const readyObj = {};
+    for (const [pid, val] of room.ready.entries()) {
+      readyObj[pid] = !!val;
+    }
+
+    const allReady = computeAllReady(room);
+
+    io.to(roomId).emit("ready_state", {
+      ready: readyObj,
+      allReady,
+    });
+
     ack?.({ ok: true });
   });
 
-  socket.on("join_room", async ({ roomId, name }, ack) => {
+  // ---------- VOTE ----------
+    socket.on("vote", ({ roomId, roundId, optionId }, ack) => {
     const room = rooms.get(roomId);
     if (!room) return ack?.({ error: "ROOM_NOT_FOUND" });
 
-    const p = await addPlayer(room.gameId, (name || "Player").trim());
-    room.players.set(socket.id, {
-      id: socket.id,
-      name: p.display_name,
-      playerGameId: p.id,
-      points: p.points,
-    });
-
-    socket.join(roomId);
-    sendRoomState(roomId);
-    ack?.({ ok: true, playerId: socket.id });
-  });
-
-  socket.on("vote", ({ roomId, roundId, optionId }, ack) => {
-    const room = rooms.get(roomId);
-    if (!room) return ack?.({ error: "ROOM_NOT_FOUND" });
-    if (!room.players.has(socket.id)) return ack?.({ error: "NOT_IN_ROOM" });
+    const player = room.players.get(socket.id);
+    if (!player) return ack?.({ error: "NOT_IN_ROOM" });
 
     if (!room.round || String(room.round.id) !== String(roundId)) {
       return ack?.({ error: "ROUND_CLOSED" });
@@ -607,25 +333,58 @@ io.on("connection", (socket) => {
     );
     if (!exists) return ack?.({ error: "BAD_OPTION" });
 
+    // Store vote keyed by playerGameId (stable within the game)
     room.roundVotes = room.roundVotes || new Map();
-    room.roundVotes.set(socket.id, Number(optionId));
+    room.roundVotes.set(player.playerGameId, Number(optionId));
 
+    // Build voted map keyed by socket.id just for UI (optional)
     const voted = {};
-    for (const pid of room.roundVotes.keys()) voted[pid] = true;
+    for (const [pgId] of room.roundVotes.entries()) {
+      const p = Array.from(room.players.values()).find(
+        (pl) => pl.playerGameId === pgId
+      );
+      if (p) voted[p.id] = true; // p.id is socket.id
+    }
     io.to(roomId).emit("vote_status", { voted });
 
     ack?.({ ok: true });
+    console.log("✅ vote received", {
+      roomId,
+      socketId: socket.id,
+      playerGameId: player.playerGameId,
+      optionId,
+    });
   });
 
+
+  // ---------- DISCONNECT ----------
   socket.on("disconnect", () => {
     for (const [roomId, room] of rooms) {
+      let removed = false;
       if (room.players.delete(socket.id)) {
+        removed = true;
+      }
+      if (room.ready) {
+        room.ready.delete(socket.id);
+      }
+
+      if (removed) {
         if (room.players.size === 0) {
           if (room.timer) clearInterval(room.timer);
           rooms.delete(roomId);
           console.log(`🧹 Room ${roomId} deleted (empty)`);
         } else {
-          sendRoomState(roomId);
+          broadcastRoomState(io, roomId);
+
+          // Update ready_state for remaining players
+          const readyObj = {};
+          for (const [pid, val] of room.ready.entries()) {
+            readyObj[pid] = !!val;
+          }
+          io.to(roomId).emit("ready_state", {
+            ready: readyObj,
+            allReady: computeAllReady(room),
+          });
         }
         break;
       }
@@ -633,6 +392,15 @@ io.on("connection", (socket) => {
     console.log("❌ Client disconnected:", socket.id);
   });
 });
+
+function computeAllReady(room) {
+  if (!room || !room.players) return false;
+  const playerIds = Array.from(room.players.keys());
+  if (!playerIds.length) return false;
+  if (!room.ready) return false;
+  return playerIds.every((id) => room.ready.get(id) === true);
+}
+
 
 // ===================================================
 // ================= SERVER STARTUP ==================
