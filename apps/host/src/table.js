@@ -1,5 +1,6 @@
 // apps/host/src/table.js
 import { initScene, setPlayersOnTable, updateReadyBadges } from "./scene/scene.js";
+import { initMainMenuScene, disposeMainMenuScene } from "./scene/menu.js";
 import { createSocket } from "./net/socket.js";
 import {
   renderLobbyOverlay,
@@ -9,19 +10,20 @@ import {
   renderGameOverOverlay,
 } from "./ui/overlay.js";
 
+
 let socket = null;
 let roomId = null;
 let myId = null;
 let myName = null;
 let players = [];
-let readyById = {};     // playerId -> boolean (ready?)
-let allReady = false;   // true when everyone in players[] is ready
+let readyById = {};
+let allReady = false;
 let gameStarted = false;
 
 // Round / voting state
-let currentRound = null;      // { roundId, roundNumber, question, options }
-let currentRemaining = null;  // timer seconds
-let myVoteOptionId = null;    // which option I picked in this round
+let currentRound = null;
+let currentRemaining = null;
+let myVoteOptionId = null;
 
 // ---------------- INPUT HELPERS ----------------
 function getNameInput() {
@@ -36,7 +38,6 @@ function getCodeInput() {
   return raw ? raw.toUpperCase() : "";
 }
 
-// Is this client the host? (we treat the first player in list as host)
 function isHost() {
   if (!myId) return false;
   if (!players.length) return false;
@@ -90,7 +91,7 @@ function showResultsOverlay(results) {
     counts: results.counts || [],
     leaderboard: results.leaderboard || [],
     isHost: isHost(),
-    onNextRoundClick: onStartGameClick, // reuse same start handler
+    onNextRoundClick: onStartGameClick,
   });
 }
 
@@ -156,11 +157,11 @@ function joinRoom(code, name) {
     myId = ack.playerId;
     console.log("✅ Joined room. playerId:", myId);
 
+    // now we're in the game space
     showInRoomOverlay();
   });
 }
 
-// Player presses "I'm Ready"
 function onReadyClick() {
   if (!socket || !roomId) return;
 
@@ -173,13 +174,11 @@ function onReadyClick() {
   });
 }
 
-// ---------------- CORE FIX HERE ----------------
 function onStartGameClick() {
   if (!socket || !roomId) return;
 
   console.log("🟢 Requesting start_game…");
 
-  // DO NOT clear currentRound here — results screen still needs it.
   currentRemaining = null;
   myVoteOptionId = null;
 
@@ -195,7 +194,6 @@ function onStartGameClick() {
   });
 }
 
-// Maybe auto-start when everyone is ready and I'm the host
 function maybeAutoStart() {
   if (!isHost()) return;
   if (!allReady) return;
@@ -205,10 +203,9 @@ function maybeAutoStart() {
   onStartGameClick();
 }
 
-// Player clicks an option
 function handleOptionClick(optionId) {
   if (!socket || !roomId || !currentRound) return;
-  if (myVoteOptionId) return; // already voted
+  if (myVoteOptionId) return;
 
   console.log("🟢 Voting option:", optionId);
 
@@ -311,12 +308,22 @@ function wireSocketEvents() {
   });
 }
 
-// ---------------- ENTRY POINT -----------------
-(function main() {
-  initScene("table-app");
+document.addEventListener("DOMContentLoaded", () => {
+  console.log("MAIN MENU INITIALIZING…");
 
-  socket = createSocket();
-  wireSocketEvents();
+  initMainMenuScene("table-app", {
+    onMultiplayerClick: () => {
+      console.log("MULTIPLAYER POSTER CLICKED");
 
-  showLobbyOverlay();
-})();
+      disposeMainMenuScene();
+      initScene("table-app");
+
+      socket = createSocket();
+      wireSocketEvents();
+
+      showLobbyOverlay();
+    },
+  });
+});
+
+

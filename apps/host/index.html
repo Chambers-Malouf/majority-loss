@@ -24,8 +24,14 @@
       #overlay-root {
         position: fixed;
         inset: 0;
-        pointer-events: auto;
+        pointer-events: none;
         z-index: 10;
+      }
+      #table-app canvas {
+        width: 100vw !important;
+        height: 100vh !important;
+        display: block !important;
+        pointer-events: auto !important;
       }
     </style>
   </head>
@@ -35,6 +41,6 @@
     <div id="overlay-root"></div>
 
     <!-- THE ONLY SCRIPT WE LOAD -->
-    <script type="module" src="/src/table.js"></script>
+  <script type="module" src="/src/table.js"></script>
   </body>
 </html>

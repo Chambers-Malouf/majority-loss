@@ -7,7 +7,9 @@ function getOverlayRoot() {
   const root = document.getElementById(overlayRootId);
   if (!root) {
     console.error(`❌ overlay root #${overlayRootId} not found`);
+    return null;
   }
+  root.style.pointerEvents = "auto";
   return root;
 }
 

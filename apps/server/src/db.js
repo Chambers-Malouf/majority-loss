@@ -3,7 +3,6 @@ import dotenv from "dotenv";
 import pg from "pg";
 dotenv.config();
 const { Pool } = pg;
-import { v4 as uuidv4 } from "uuid";
 
 export const pool = new Pool({
   connectionString: process.env.RENDER_DATABASE_URL,

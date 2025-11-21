@@ -1,12 +1,14 @@
-// apps/host/src/scene/scene.js
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { createAvatar } from "./avatar.js";
 
 let scene, camera, renderer, controls;
 const avatars = new Map(); // playerId -> THREE.Group
-const readyBadges = new Map(); // playerId -> { sprite, state: "ready"|"not-ready" }
+const readyBadges = new Map(); // playerId -> { sprite, state }
 const clock = new THREE.Clock();
+
+// 🔹 Track which player is "me" for POV camera
+let myPlayerIdGlobal = null;
 
 // Fixed 5-seat layout (you + 4 others)
 const TOTAL_SEATS = 5;
@@ -16,7 +18,7 @@ const TOTAL_SEATS = 5;
  */
 const SEAT_ANGLES = (() => {
   const start = -Math.PI * 0.35; // left
-  const end = Math.PI * 0.35;    // right
+  const end = Math.PI * 0.35; // right
   const step = (end - start) / (TOTAL_SEATS - 1);
   const arr = [];
   for (let i = 0; i < TOTAL_SEATS; i++) {
@@ -77,7 +79,7 @@ function makeBadgeTexture(text, bgColor, textColor) {
 function createReadySprite(state = "not-ready") {
   const isReady = state === "ready";
   const text = isReady ? "READY ✔" : "NOT READY";
-  const bg = isReady ? "#16a34a" : "#b45309";      // green vs amber
+  const bg = isReady ? "#16a34a" : "#b45309"; // green vs amber
   const fg = "#ffffff";
 
   const tex = makeBadgeTexture(text, bg, fg);
@@ -126,14 +128,15 @@ export function initScene(containerId = "table-app") {
     0.1,
     200
   );
+  // Default director view (used as fallback)
   camera.position.set(0, 5.4, 13);
   camera.lookAt(0, 2.2, 0);
 
   controls = new OrbitControls(camera, renderer.domElement);
+  // We’re now doing our own camera follow, so disable user rotate/zoom.
   controls.enableZoom = false;
   controls.enablePan = false;
-  controls.minPolarAngle = Math.PI / 3;
-  controls.maxPolarAngle = Math.PI / 2;
+  controls.enableRotate = false;
   controls.target.set(0, 2.0, 0);
   controls.update();
 
@@ -288,12 +291,15 @@ function onWindowResize() {
 /**
  * Place up to 5 avatars around the dais.
  * players: [{ id, name }, ...]
- * myPlayerId: id of "you" (gets blue highlight).
+ * myPlayerId: id of "you" (passed from table.js as myId)
  */
 export function setPlayersOnTable(players, myPlayerId = null) {
   if (!scene) return;
   const limited = players.slice(0, TOTAL_SEATS);
   const currentIds = new Set(limited.map((p) => p.id));
+
+  // Track who "I" am for POV cam on this device
+  myPlayerIdGlobal = myPlayerId || null;
 
   // Remove avatars (and badges) for players who left
   for (const [id, group] of avatars.entries()) {
@@ -390,6 +396,43 @@ export function updateReadyBadges(readyById = {}) {
 }
 
 /**
+ * Attach the camera to *my* avatar (on this device only).
+ * Uses myPlayerIdGlobal which comes from table.js via setPlayersOnTable.
+ */
+function updateCameraFollow() {
+  if (!camera) return;
+
+  if (!myPlayerIdGlobal || !avatars.has(myPlayerIdGlobal)) {
+    // Fallback: classic director view
+    camera.position.set(0, 5.4, 13);
+    camera.lookAt(0, 2.2, 0);
+    return;
+  }
+
+  const avatar = avatars.get(myPlayerIdGlobal);
+  if (!avatar) return;
+
+  // Make sure world matrix is up to date before converting local offsets
+  avatar.updateWorldMatrix(true, false);
+
+  // 🔹 Camera position: a bit above and IN FRONT of the face
+  //   (we increase Z so you're no longer "inside" the head)
+  const headOffset = new THREE.Vector3(0, 3.1, 1.25);
+  // 🔹 Look target: center of the head area
+  const lookOffset = new THREE.Vector3(0, 3.0, 0.2);
+
+  const worldCamPos = headOffset.clone();
+  const worldLookPos = lookOffset.clone();
+
+  avatar.localToWorld(worldCamPos);
+  avatar.localToWorld(worldLookPos);
+
+  // Smooth follow for a nicer feel
+  camera.position.lerp(worldCamPos, 0.25);
+  camera.lookAt(worldLookPos);
+}
+
+/**
  * Main render loop – handles idle animation & camera controls.
  */
 function animate() {
@@ -399,7 +442,7 @@ function animate() {
   const t = clock.getElapsedTime();
 
   // Bobble + idle motion for each avatar
-  for (const group of avatars.values()) {
+  for (const [, group] of avatars.entries()) {
     const baseY = group.userData.baseY ?? group.position.y;
     const phase = group.userData.phase ?? 0;
     const bob = Math.sin(t * 2 + phase) * 0.08;
@@ -408,6 +451,9 @@ function animate() {
     // Tiny "listening" sway
     group.rotation.y = Math.sin(t * 0.6 + phase) * 0.15;
   }
+
+  // Follow my avatar with the camerak
+  updateCameraFollow();
 
   controls && controls.update();
   renderer.render(scene, camera);

@@ -65,21 +65,26 @@ export function createAvatar(name = "BOT") {
   group.add(shoulders);
 
   // ---------------- HEAD ----------------
+  const headGroup = new THREE.Group();
+  headGroup.position.set(0, 3.0, 0);
+  group.add(headGroup);
+
   const head = new THREE.Mesh(
     new THREE.BoxGeometry(1.3, 0.95, 1.05),
     metalMat
   );
-  head.position.set(0, 3.0, 0);
-  group.add(head);
+  headGroup.add(head);
 
-  // Face screen inset
+  // Face
   const face = new THREE.Mesh(
     new THREE.BoxGeometry(1.05, 0.65, 0.12),
     faceMat
   );
-  face.position.set(0, 3.0, 0.55);
-  group.add(face);
+  face.position.set(0, 0, 0.55);
+  headGroup.add(face);
 
+  // store reference for POV attachment later
+  group.userData.headGroup = headGroup;
   // Glowing eyes (two tiny spheres)
   const eyeMat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
@@ -179,6 +184,13 @@ export function createAvatar(name = "BOT") {
   const label = makeNameSprite(name);
   label.position.set(0, 3.8, 0);
   group.add(label);
+
+  // ---------------- HEAD ANCHOR FOR CAMERA ---------
+  // This is where we mount the per-player POV camera.
+  const headAnchor = new THREE.Object3D();
+  headAnchor.position.set(0, 3.1, 0); // center of head
+  group.add(headAnchor);
+  group.userData.headAnchor = headAnchor;
 
   // For bobbing animation in scene.js
   group.userData.baseY = group.position.y;
