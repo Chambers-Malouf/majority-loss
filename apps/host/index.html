@@ -2,8 +2,8 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Majority Loss — 3D Table</title>
-
+    <title>Majority Loss</title>
+    <meta name= "viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
     <style>
       html, body {
         margin: 0;
@@ -42,5 +42,22 @@
 
     <!-- THE ONLY SCRIPT WE LOAD -->
   <script type="module" src="/src/table.js"></script>
+  <div id="landscape-warning">
+  Rotate your device ⤵️
+</div>
+
+  <style>
+  #landscape-warning {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: #000000dd;
+    color: white;
+    font-size: 2rem;
+    z-index: 9999;
+  }
+  </style>
   </body>
 </html>

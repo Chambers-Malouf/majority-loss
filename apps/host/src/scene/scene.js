@@ -1,14 +1,24 @@
+// apps/host/src/scene/scene.js
 import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { createAvatar } from "./avatar.js";
 
-let scene, camera, renderer, controls;
+let scene, camera, renderer;
 const avatars = new Map(); // playerId -> THREE.Group
 const readyBadges = new Map(); // playerId -> { sprite, state }
 const clock = new THREE.Clock();
 
-// 🔹 Track which player is "me" for POV camera
+// 🔹 Which player is "me" on THIS device
 let myPlayerIdGlobal = null;
+
+// 🔹 Head look state (per device, only applied to my avatar)
+let pointerDown = false;
+let lastPointerX = 0;
+let lastPointerY = 0;
+let yaw = 0;   // rotate left/right
+let pitch = 0; // look up/down
+
+// Landscape overlay
+const ORIENTATION_OVERLAY_ID = "orientation-overlay";
 
 // Fixed 5-seat layout (you + 4 others)
 const TOTAL_SEATS = 5;
@@ -98,6 +108,81 @@ function createReadySprite(state = "not-ready") {
 }
 
 /**
+ * Create / update the "rotate to landscape" overlay on phones.
+ */
+function updateOrientationOverlay() {
+  let overlay = document.getElementById(ORIENTATION_OVERLAY_ID);
+  const isPortrait = window.innerHeight > window.innerWidth;
+
+  if (!isPortrait) {
+    // Remove overlay if present
+    if (overlay) {
+      overlay.remove();
+    }
+    return;
+  }
+
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = ORIENTATION_OVERLAY_ID;
+    overlay.style.position = "fixed";
+    overlay.style.inset = "0";
+    overlay.style.zIndex = "9999";
+    overlay.style.background = "rgba(3,7,18,0.96)";
+    overlay.style.display = "flex";
+    overlay.style.alignItems = "center";
+    overlay.style.justifyContent = "center";
+    overlay.style.flexDirection = "column";
+    overlay.style.color = "#e5e7eb";
+    overlay.style.fontFamily =
+      'system-ui, -apple-system, BlinkMacSystemFont, "Inter", sans-serif';
+    overlay.style.textAlign = "center";
+    overlay.style.padding = "24px";
+
+    const icon = document.createElement("div");
+    icon.textContent = "📱↻";
+    icon.style.fontSize = "4rem";
+    icon.style.marginBottom = "1rem";
+
+    const text = document.createElement("div");
+    text.innerHTML =
+      "<strong>Rotate your device</strong><br/>Majority Loss plays best in landscape mode.";
+
+    overlay.appendChild(icon);
+    overlay.appendChild(text);
+    document.body.appendChild(overlay);
+  }
+}
+
+// ---------------- INPUT HANDLERS FOR LOOKING AROUND ----------------
+function onPointerDown(e) {
+  pointerDown = true;
+  lastPointerX = e.clientX;
+  lastPointerY = e.clientY;
+}
+
+function onPointerMove(e) {
+  if (!pointerDown) return;
+  const dx = e.clientX - lastPointerX;
+  const dy = e.clientY - lastPointerY;
+  lastPointerX = e.clientX;
+  lastPointerY = e.clientY;
+
+  const sensitivity = 0.005; // tweak if too fast/slow
+  yaw -= dx * sensitivity;
+  pitch -= dy * sensitivity;
+
+  // Clamp pitch so you can't snap your neck
+  const maxPitch = 0.6;
+  const minPitch = -0.6;
+  pitch = Math.max(minPitch, Math.min(maxPitch, pitch));
+}
+
+function onPointerUp() {
+  pointerDown = false;
+}
+
+/**
  * Initialize the robot courtroom scene inside the given container.
  */
 export function initScene(containerId = "table-app") {
@@ -121,24 +206,16 @@ export function initScene(containerId = "table-app") {
   }
   container.appendChild(renderer.domElement);
 
-  // ---------------- CAMERA & CONTROLS ----------------
+  // ---------------- CAMERA ----------------
   camera = new THREE.PerspectiveCamera(
     60,
     window.innerWidth / window.innerHeight,
     0.1,
     200
   );
-  // Default director view (used as fallback)
+  // Default director view (fallback when not attached to an avatar)
   camera.position.set(0, 5.4, 13);
   camera.lookAt(0, 2.2, 0);
-
-  controls = new OrbitControls(camera, renderer.domElement);
-  // We’re now doing our own camera follow, so disable user rotate/zoom.
-  controls.enableZoom = false;
-  controls.enablePan = false;
-  controls.enableRotate = false;
-  controls.target.set(0, 2.0, 0);
-  controls.update();
 
   // ---------------- LIGHTING ----------------
   const ambient = new THREE.AmbientLight(0xffffff, 1.2);
@@ -274,8 +351,15 @@ export function initScene(containerId = "table-app") {
   deskGlow.position.set(0, 2.2, 6.2);
   scene.add(deskGlow);
 
-  // ---------------- RESIZE HANDLER ----------------
+  // ---------------- INPUT + ORIENTATION HANDLERS ----------------
+  renderer.domElement.addEventListener("pointerdown", onPointerDown);
+  window.addEventListener("pointermove", onPointerMove);
+  window.addEventListener("pointerup", onPointerUp);
+  window.addEventListener("pointercancel", onPointerUp);
+
   window.addEventListener("resize", onWindowResize);
+  window.addEventListener("resize", updateOrientationOverlay);
+  updateOrientationOverlay();
 
   // ---------------- START LOOP ----------------
   animate();
@@ -396,8 +480,22 @@ export function updateReadyBadges(readyById = {}) {
 }
 
 /**
+ * Apply yaw/pitch to MY robot's head only.
+ */
+function updateHeadLook() {
+  if (!myPlayerIdGlobal) return;
+  const avatar = avatars.get(myPlayerIdGlobal);
+  if (!avatar) return;
+
+  const headGroup = avatar.userData.headGroup;
+  if (!headGroup) return;
+
+  headGroup.rotation.y = yaw;
+  headGroup.rotation.x = pitch;
+}
+
+/**
  * Attach the camera to *my* avatar (on this device only).
- * Uses myPlayerIdGlobal which comes from table.js via setPlayersOnTable.
  */
 function updateCameraFollow() {
   if (!camera) return;
@@ -412,28 +510,28 @@ function updateCameraFollow() {
   const avatar = avatars.get(myPlayerIdGlobal);
   if (!avatar) return;
 
-  // Make sure world matrix is up to date before converting local offsets
-  avatar.updateWorldMatrix(true, false);
+  const headGroup = avatar.userData.headGroup || avatar;
 
-  // 🔹 Camera position: a bit above and IN FRONT of the face
-  //   (we increase Z so you're no longer "inside" the head)
-  const headOffset = new THREE.Vector3(0, 3.1, 1.25);
-  // 🔹 Look target: center of the head area
-  const lookOffset = new THREE.Vector3(0, 3.0, 0.2);
+  // Make sure world matrix is up to date
+  headGroup.updateWorldMatrix(true, false);
 
-  const worldCamPos = headOffset.clone();
+  // Camera a bit in front of the face
+  const camOffset = new THREE.Vector3(0, 0.1, 0.8);
+  const lookOffset = new THREE.Vector3(0, 0.0, 2.0);
+
+  const worldCamPos = camOffset.clone();
   const worldLookPos = lookOffset.clone();
 
-  avatar.localToWorld(worldCamPos);
-  avatar.localToWorld(worldLookPos);
+  headGroup.localToWorld(worldCamPos);
+  headGroup.localToWorld(worldLookPos);
 
-  // Smooth follow for a nicer feel
+  // Smooth follow
   camera.position.lerp(worldCamPos, 0.25);
   camera.lookAt(worldLookPos);
 }
 
 /**
- * Main render loop – handles idle animation & camera controls.
+ * Main render loop – handles idle animation, head look, and camera follow.
  */
 function animate() {
   requestAnimationFrame(animate);
@@ -442,19 +540,23 @@ function animate() {
   const t = clock.getElapsedTime();
 
   // Bobble + idle motion for each avatar
-  for (const [, group] of avatars.entries()) {
+  for (const [playerId, group] of avatars.entries()) {
     const baseY = group.userData.baseY ?? group.position.y;
     const phase = group.userData.phase ?? 0;
     const bob = Math.sin(t * 2 + phase) * 0.08;
     group.position.y = baseY + bob;
 
-    // Tiny "listening" sway
-    group.rotation.y = Math.sin(t * 0.6 + phase) * 0.15;
+    // Tiny "listening" sway for OTHER robots only
+    if (playerId !== myPlayerIdGlobal) {
+      group.rotation.y = Math.sin(t * 0.6 + phase) * 0.15;
+    }
   }
 
-  // Follow my avatar with the camerak
+  // Apply yaw/pitch to my robot's head
+  updateHeadLook();
+
+  // Follow my avatar with the camera
   updateCameraFollow();
 
-  controls && controls.update();
   renderer.render(scene, camera);
 }
