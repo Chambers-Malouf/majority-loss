@@ -188,7 +188,7 @@ export function createAvatar(name = "BOT") {
   // ---------------- HEAD ANCHOR FOR CAMERA ---------
   // This is where we mount the per-player POV camera.
   const headAnchor = new THREE.Object3D();
-  headAnchor.position.set(0, 3.1, 0); // center of head
+  headAnchor.position.set(1, 4, 0); // center of head
   group.add(headAnchor);
   group.userData.headAnchor = headAnchor;
 

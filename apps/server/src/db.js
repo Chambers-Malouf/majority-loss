@@ -6,10 +6,11 @@ const { Pool } = pg;
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl:
+  ssl: { rejectUnauthorized: false},
+  /*ssl:
     process.env.PGSSL?.toLowerCase() === "true"
       ? { rejectUnauthorized: false }
-      : false,
+      : false,*/
 });
 
 // -------------------- GAME HELPERS --------------------

@@ -3,14 +3,12 @@ console.log("📸 scene.js loaded (fresh)");
 
 import * as THREE from "three";
 import { createAvatar } from "./avatar.js";
+import { myPlayerId } from "../state.js";
 
 let scene, camera, renderer;
 const avatars = new Map();           // playerId -> THREE.Group
 const readyBadges = new Map();       // playerId -> { sprite, state }
 const clock = new THREE.Clock();
-
-// Which player is "me" on THIS device
-let myPlayerIdGlobal = null;
 
 // Look state (per device, only applied to my avatar)
 let pointerDown = false;
@@ -150,6 +148,8 @@ function onPointerDown(e) {
   pointerDown = true;
   lastPointerX = e.clientX;
   lastPointerY = e.clientY;
+  // Debug so we know this device is actually receiving input
+  console.log("🖱 pointerdown", e.clientX, e.clientY);
 }
 
 function onPointerMove(e) {
@@ -358,15 +358,13 @@ function onWindowResize() {
 
 /* -------------- PLAYER AVATARS -------------------- */
 
-export function setPlayersOnTable(players, myPlayerId = null) {
+export function setPlayersOnTable(players) {
   console.log("🎯 setPlayersOnTable called", { players, myPlayerId });
 
-  myPlayerIdGlobal = myPlayerId;
+  // Reset debug flags each time we get a fresh table state
   loggedNoPlayerId = false;
   loggedNoAvatar = false;
   loggedCameraAttached = false;
-
-  console.log("👉 myPlayerIdGlobal set to:", myPlayerIdGlobal);
 
   if (!scene) {
     console.warn("⚠️ Scene not ready yet, cannot place players");
@@ -448,11 +446,19 @@ export function updateReadyBadges(readyById = {}) {
 /* -------------- HEAD LOOK & CAMERA ---------------- */
 
 function updateHeadLook() {
-  if (!myPlayerIdGlobal) return;
-  const avatar = avatars.get(myPlayerIdGlobal);
+  const id = myPlayerId;
+  if (!id) {
+    if (!loggedNoPlayerId) {
+      console.log("🚫 updateHeadLook: no myPlayerId yet");
+      loggedNoPlayerId = true;
+    }
+    return;
+  }
+
+  const avatar = avatars.get(id);
   if (!avatar) {
     if (!loggedNoAvatar) {
-      console.log("❌ updateHeadLook: no avatar for myPlayerIdGlobal", myPlayerIdGlobal);
+      console.log("❌ updateHeadLook: no avatar for myPlayerId", id);
       loggedNoAvatar = true;
     }
     return;
@@ -474,18 +480,19 @@ function updateHeadLook() {
 function updateCameraFollow() {
   if (!camera) return;
 
-  if (!myPlayerIdGlobal) {
+  const id = myPlayerId;
+  if (!id) {
     if (!loggedNoPlayerId) {
-      console.log("🚫 updateCameraFollow: no myPlayerIdGlobal yet");
+      console.log("🚫 updateCameraFollow: no myPlayerId yet");
       loggedNoPlayerId = true;
     }
     return;
   }
 
-  const avatar = avatars.get(myPlayerIdGlobal);
+  const avatar = avatars.get(id);
   if (!avatar) {
     if (!loggedNoAvatar) {
-      console.log("🟥 updateCameraFollow: avatar not found for", myPlayerIdGlobal);
+      console.log("🟥 updateCameraFollow: avatar not found for", id);
       loggedNoAvatar = true;
     }
     return;
@@ -514,7 +521,7 @@ function updateCameraFollow() {
   camera.lookAt(worldLookPos);
 
   if (!loggedCameraAttached) {
-    console.log("📸 Camera now following avatar", myPlayerIdGlobal, {
+    console.log("📸 Camera now following avatar", id, {
       camPos: camera.position.clone(),
       lookPos: worldLookPos.clone(),
     });
@@ -528,8 +535,7 @@ function animate() {
   requestAnimationFrame(animate);
   if (!renderer || !camera || !scene) return;
 
-  // No bob/sway for anyone — keep them still
-  // (If you ever want bot-only motion, we can add a separate flag later.)
+  // No bob/sway for anyone — keep them still for clean POV
 
   updateHeadLook();
   updateCameraFollow();

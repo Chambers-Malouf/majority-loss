@@ -9,7 +9,9 @@ function getOverlayRoot() {
     console.error(`❌ overlay root #${overlayRootId} not found`);
     return null;
   }
-  root.style.pointerEvents = "auto";
+  // IMPORTANT: let the root itself be click-through.
+  // We will make only the overlay cards capture pointer events.
+  root.style.pointerEvents = "none";
   return root;
 }
 
@@ -30,8 +32,8 @@ export function renderLobbyOverlay({
   if (!root) return;
 
   root.innerHTML = `
-    <div class="overlay-ui">
-      <div class="overlay-card">
+    <div class="overlay-ui" style="pointer-events:none;">
+      <div class="overlay-card" style="pointer-events:auto;">
         <h1>MAJORITY LOSS</h1>
         <p>3D mode — create a room or join one</p>
 
@@ -119,8 +121,8 @@ export function renderInRoomOverlay({
   const iAmReady = !!readyById[myId];
 
   root.innerHTML = `
-    <div class="overlay-ui">
-      <div class="overlay-card">
+    <div class="overlay-ui" style="pointer-events:none;">
+      <div class="overlay-card" style="pointer-events:auto;">
         <h1>Lobby</h1>
         <p>Players at the table. Get everyone ready, then begin the trial.</p>
 
@@ -221,8 +223,8 @@ export function renderQuestionOverlay({
     : `<div class="small-text">Tap one option on your tablet to cast your vote.</div>`;
 
   root.innerHTML = `
-    <div class="overlay-ui">
-      <div class="overlay-card">
+    <div class="overlay-ui" style="pointer-events:none;">
+      <div class="overlay-card" style="pointer-events:auto;">
         <div class="room-tag">ROOM: ${roomId} — Round ${roundNumber}</div>
         ${timerLabel}
         <h2 style="margin-top:12px;">${safeQuestion}</h2>
@@ -255,7 +257,6 @@ export function renderQuestionOverlay({
  * - shows leaderboard
  * - host can click Next Round
  */
-// ===================== RESULTS OVERLAY =====================
 export function renderResultsOverlay({
   roomId = "------",
   roundNumber = 1,
@@ -273,7 +274,6 @@ export function renderResultsOverlay({
   // Build outcome lines using counts from the server
   const outcomeLines = options
     .map((opt) => {
-      // Find the matching count entry for this option
       const c = counts.find((entry) => Number(entry.optionId) === Number(opt.id));
       const count = c ? c.count : 0;
 
@@ -296,14 +296,13 @@ export function renderResultsOverlay({
     })
     .join("");
 
-  // Host sees a "Next Round" button, others just see waiting text
   const nextButtonHtml = isHost
     ? `<button id="next-round-btn" class="btn">Next Round</button>`
     : `<div class="small-text">Waiting for the host to begin the next trial…</div>`;
 
   root.innerHTML = `
-    <div class="overlay-ui">
-      <div class="overlay-card">
+    <div class="overlay-ui" style="pointer-events:none;">
+      <div class="overlay-card" style="pointer-events:auto;">
         <div class="room-tag">
           ROOM: ${roomId} — Round ${roundNumber} results
         </div>
@@ -327,7 +326,6 @@ export function renderResultsOverlay({
     </div>
   `;
 
-  // Wire Next Round click if this client is the host
   if (isHost && typeof onNextRoundClick === "function") {
     const btn = document.getElementById("next-round-btn");
     if (btn) {
@@ -335,7 +333,6 @@ export function renderResultsOverlay({
     }
   }
 }
-
 
 /**
  * GAME OVER OVERLAY — after MAX_ROUNDS.
@@ -350,7 +347,10 @@ export function renderGameOverOverlay({
 
   const rows = leaderboard
     .map((p, idx) => {
-      const medal = idx === 0 ? "👑 " : idx === 1 ? "🥈 " : idx === 2 ? "🥉 " : "• ";
+      const medal =
+        idx === 0 ? "👑 " :
+        idx === 1 ? "🥈 " :
+        idx === 2 ? "🥉 " : "• ";
       return `
         <div class="player-row">
           <span>${medal}${p.name}</span>
@@ -361,8 +361,8 @@ export function renderGameOverOverlay({
     .join("");
 
   root.innerHTML = `
-    <div class="overlay-ui">
-      <div class="overlay-card">
+    <div class="overlay-ui" style="pointer-events:none;">
+      <div class="overlay-card" style="pointer-events:auto;">
         <h1>Game Over</h1>
         <p>The tribunal has spoken. Final standings for room ${roomId}:</p>
 

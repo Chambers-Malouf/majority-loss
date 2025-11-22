@@ -9,7 +9,7 @@ import {
   renderResultsOverlay,
   renderGameOverOverlay,
 } from "./ui/overlay.js";
-
+import { setMyPlayerId } from "./state.js";
 
 let socket = null;
 let roomId = null;
@@ -155,7 +155,7 @@ function joinRoom(code, name) {
     }
 
     myId = ack.playerId;
-    myPlayerIdGlobal = myId;
+    setMyPlayerId(myId); // 🔑 tell state.js who "I" am on THIS device
 
     // now we're in the game space
     showInRoomOverlay();
@@ -249,7 +249,8 @@ function wireSocketEvents() {
       showInRoomOverlay();
     }
 
-    setPlayersOnTable(players, myId);
+    // 🔑 scene decides who "me" is by reading state.js (myPlayerId)
+    setPlayersOnTable(players);
     updateReadyBadges(readyById);
   });
 
@@ -325,5 +326,3 @@ document.addEventListener("DOMContentLoaded", () => {
     },
   });
 });
-
-
