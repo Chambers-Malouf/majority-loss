@@ -1,4 +1,4 @@
-// apps/host/src/state.js
+// apps/host/src/state.jsl
 
 // Single source of truth for THIS device's player ID
 export let myPlayerId = null;
