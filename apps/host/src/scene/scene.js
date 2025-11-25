@@ -14,6 +14,7 @@ const clock = new THREE.Clock();
 let pointerDown = false;
 let lastPointerX = 0;
 let lastPointerY = 0;
+let dragDistanceSq = 0;
 let yaw = 0; // rotate left/right
 let pitch = 0; // look up/down
 
@@ -36,7 +37,13 @@ const SEAT_ANGLES = (() => {
   return arr;
 })();
 
-/* ---------------- BADGE HELPERS (unchanged) ---------------- */
+// Raycaster for chalkboard clicks
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+
+/* ------------------------------------------------------------------
+   BADGE HELPERS
+------------------------------------------------------------------- */
 
 function makeBadgeTexture(text, bgColor, textColor) {
   const canvas = document.createElement("canvas");
@@ -92,7 +99,9 @@ function createReadySprite(state = "not-ready") {
   return sprite;
 }
 
-/* -------------- ORIENTATION OVERLAY (unchanged) -------------- */
+/* ------------------------------------------------------------------
+   ORIENTATION OVERLAY
+------------------------------------------------------------------- */
 
 function updateOrientationOverlay() {
   let overlay = document.getElementById(ORIENTATION_OVERLAY_ID);
@@ -123,12 +132,15 @@ function updateOrientationOverlay() {
   }
 }
 
-/* -------------- INPUT: LOOK AROUND (unchanged) -------------- */
+/* ------------------------------------------------------------------
+   INPUT: LOOK + TAP ON CHALKBOARD
+------------------------------------------------------------------- */
 
 function onPointerDown(e) {
   pointerDown = true;
   lastPointerX = e.clientX;
   lastPointerY = e.clientY;
+  dragDistanceSq = 0;
 }
 
 function onPointerMove(e) {
@@ -138,6 +150,8 @@ function onPointerMove(e) {
   lastPointerX = e.clientX;
   lastPointerY = e.clientY;
 
+  dragDistanceSq += dx * dx + dy * dy;
+
   const sensitivity = 0.004;
   yaw -= dx * sensitivity;
   pitch -= dy * sensitivity;
@@ -145,11 +159,728 @@ function onPointerMove(e) {
   pitch = Math.max(-0.6, Math.min(0.6, pitch));
 }
 
-function onPointerUp() {
+function onPointerUp(e) {
+  if (!pointerDown) return;
   pointerDown = false;
+
+  // If it was basically a tap (not a drag), treat as chalkboard click
+  const TAP_THRESHOLD_SQ = 12 * 12; // ~12px
+  if (dragDistanceSq <= TAP_THRESHOLD_SQ) {
+    handleChalkClick(e);
+  }
 }
 
-/* -------------- INIT SCENE — REAL 3D COURTROOM ------------------------ */
+/* ------------------------------------------------------------------
+   CHALKBOARD BANNERS (left / center / right) — canvas-based text
+------------------------------------------------------------------- */
+
+const bannerMeshes = { left: null, center: null, right: null };
+const bannerTextures = { left: null, center: null, right: null };
+let bannerState = {
+  left: "",
+  center: "MAJORITY LOSS\nTrial by Chambers Malouf",
+  right: "",
+};
+
+// Chalk state for question / results
+let chalkMode = "idle"; // "idle" | "question" | "results"
+let chalkState = {
+  roomId: "------",
+  roundNumber: 1,
+  questionText: "",
+  options: [], // { id, text }
+  remaining: null,
+  myVoteOptionId: null,
+  onOptionClick: null,
+  optionBoxes: [], // { id, x, y, w, h } canvas coordinates
+  winningOptionId: null,
+  counts: [],
+  leaderboard: [],
+};
+
+function createBannerTexture(initialText = "") {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1024;
+  canvas.height = 1024;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return { canvas, ctx: null };
+
+  // Chalkboard background
+  const grd = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  grd.addColorStop(0, "#1f3a2b");
+  grd.addColorStop(1, "#163024");
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Subtle border
+  ctx.strokeStyle = "#fefae0";
+  ctx.lineWidth = 16;
+  ctx.strokeRect(24, 24, canvas.width - 48, canvas.height - 48);
+
+  drawBannerText(ctx, canvas, initialText);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return { canvas, ctx, tex };
+}
+
+// Simple generic chalk text (used for center / non-question states)
+// =====================================================
+// AUTO-SCALING CHALKBOARD TEXT (banner / question / results)
+// =====================================================
+function drawBannerText(ctx, canvas, text) {
+  if (!text) return;
+
+  const marginX = canvas.width * 0.10;
+  const marginY = canvas.height * 0.12;
+  const maxWidth = canvas.width - marginX * 2;
+  const maxHeight = canvas.height - marginY * 2;
+
+  ctx.fillStyle = "#fefae0";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+
+  // -----------------------------
+  // 1. Split into raw paragraphs
+  // -----------------------------
+  const paragraphs = text.split(/\n/);
+
+  // -----------------------------
+  // 2. Try decreasing font sizes until it fits
+  // -----------------------------
+  let fontSize = 70;      // starting size
+  let lines = [];
+  let lineHeight = 1.22;  // multiplier
+  const minFont = 18;     // lowest allowed
+
+  function wrapLines(size) {
+    ctx.font = `bold ${size}px "Marker Felt", "Chalkboard", system-ui`;
+    const wrapped = [];
+
+    for (const para of paragraphs) {
+      const words = para.trim().split(/\s+/);
+      let line = "";
+
+      for (const w of words) {
+        const test = line ? line + " " + w : w;
+        const width = ctx.measureText(test).width;
+
+        if (width > maxWidth && line) {
+          wrapped.push(line);
+          line = w;
+        } else {
+          line = test;
+        }
+      }
+      if (line) wrapped.push(line);
+    }
+    return wrapped;
+  }
+
+  while (fontSize >= minFont) {
+    lines = wrapLines(fontSize);
+    const totalHeight = lines.length * (fontSize * lineHeight);
+
+    // If both width + height OK → done
+    const widthOK = lines.every(line => ctx.measureText(line).width <= maxWidth);
+    const heightOK = totalHeight <= maxHeight;
+
+    if (widthOK && heightOK) break;
+
+    fontSize -= 2; // shrink and retry
+  }
+
+  // -----------------------------
+  // Center vertically
+  // -----------------------------
+  const totalHeight = lines.length * (fontSize * lineHeight);
+  let y = (canvas.height - totalHeight) / 2;
+
+  // -----------------------------
+  // Render lines
+  // -----------------------------
+  ctx.font = `bold ${fontSize}px "Marker Felt", "Chalkboard", system-ui`;
+
+  for (const line of lines) {
+    ctx.fillText(line, canvas.width / 2, y);
+    y += fontSize * lineHeight;
+  }
+}
+
+
+// Draw question + options as boxes on left/right boards
+function drawQuestionBoard(ctx, canvas) {
+  const {
+    roomId,
+    roundNumber,
+    questionText,
+    options,
+    remaining,
+    myVoteOptionId,
+  } = chalkState;
+
+  // Background
+  const grd = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  grd.addColorStop(0, "#1f3a2b");
+  grd.addColorStop(1, "#163024");
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Border
+  ctx.strokeStyle = "#fefae0";
+  ctx.lineWidth = 16;
+  ctx.strokeRect(24, 24, canvas.width - 48, canvas.height - 48);
+
+  const marginX = canvas.width * 0.14;
+  const headerY = canvas.height * 0.09;
+
+  // Header: room + round + timer
+  ctx.fillStyle = "#fefae0";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.font = `bold 40px "Marker Felt", "Chalkboard", system-ui`;
+  ctx.fillText(`Room ${roomId}`, marginX, headerY);
+  ctx.font = `bold 34px "Marker Felt", "Chalkboard", system-ui`;
+  ctx.fillText(`Round ${roundNumber}`, marginX, headerY + 46);
+
+  if (typeof remaining === "number") {
+    ctx.textAlign = "right";
+    ctx.font = `bold 34px "Marker Felt", "Chalkboard", system-ui`;
+    ctx.fillText(
+      `${remaining}s left`,
+      canvas.width - marginX,
+      headerY + 10
+    );
+  }
+
+  // Question text centered under header
+  const questionTopY = headerY + 110;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  const qMaxWidth = canvas.width - marginX * 2;
+  let qFont = 40;
+  ctx.font = `bold ${qFont}px "Marker Felt", "Chalkboard", system-ui`;
+
+  // simple wrap for question
+  const qLines = [];
+  const qWords = (questionText || "…").split(/\s+/);
+  let qLine = "";
+  for (const w of qWords) {
+    const test = qLine ? qLine + " " + w : w;
+    if (ctx.measureText(test).width > qMaxWidth && qLine) {
+      qLines.push(qLine);
+      qLine = w;
+    } else {
+      qLine = test;
+    }
+  }
+  if (qLine) qLines.push(qLine);
+
+  const qTotalH = qLines.length * (qFont * 1.2);
+  let qY = questionTopY;
+  for (const l of qLines) {
+    ctx.fillText(l, canvas.width / 2, qY);
+    qY += qFont * 1.2;
+  }
+
+  // Helper text
+  ctx.font = `italic 28px "Marker Felt", "Chalkboard", system-ui`;
+  ctx.fillText(
+    "Tap a box to choose. A chalk circle will mark your vote.",
+    canvas.width / 2,
+    qY + 10
+  );
+
+  // Options as boxes
+  const startY = qY + 70;
+  const boxWidth = canvas.width * 0.76;
+  const boxHeight = 90;
+  const gap = 26;
+
+  chalkState.optionBoxes = [];
+
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+
+  options.forEach((opt, idx) => {
+    const x = (canvas.width - boxWidth) / 2;
+    const y = startY + idx * (boxHeight + gap);
+
+    const isSelected = myVoteOptionId === opt.id;
+
+    // Box bg
+    ctx.fillStyle = isSelected ? "#325f4a" : "#274131";
+    roundRect(ctx, x, y, boxWidth, boxHeight, 18, true, false);
+
+    // Box outline
+    ctx.strokeStyle = "#fefae0";
+    ctx.lineWidth = 4;
+    roundRect(ctx, x, y, boxWidth, boxHeight, 18, false, true);
+
+    // Option text (wrap inside box)
+    ctx.fillStyle = "#fefae0";
+    const innerMarginX = 22;
+    const innerMaxWidth = boxWidth - innerMarginX * 2;
+    const cx = x + innerMarginX;
+    const cy = y + boxHeight / 2;
+
+    let oFont = 30;
+    ctx.font = `bold ${oFont}px "Marker Felt", "Chalkboard", system-ui`;
+
+    const words = opt.text.split(/\s+/);
+    const lines = [];
+    let line = "";
+    for (const w of words) {
+      const test = line ? line + " " + w : w;
+      if (ctx.measureText(test).width > innerMaxWidth && line) {
+        lines.push(line);
+        line = w;
+      } else {
+        line = test;
+      }
+    }
+    if (line) lines.push(line);
+
+    const totalH = lines.length * (oFont * 1.2);
+    let textY = cy - totalH / 2;
+    lines.forEach((ln) => {
+      ctx.fillText(ln, cx, textY);
+      textY += oFont * 1.2;
+    });
+
+    // Chalk circle if selected
+    if (isSelected) {
+      ctx.strokeStyle = "#fefae0";
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.ellipse(
+        x + boxWidth / 2,
+        y + boxHeight / 2,
+        boxWidth / 2 + 10,
+        boxHeight / 2 + 6,
+        0,
+        0,
+        Math.PI * 2
+      );
+      ctx.stroke();
+    }
+
+    chalkState.optionBoxes.push({ id: opt.id, x, y, w: boxWidth, h: boxHeight });
+  });
+}
+
+// Draw results: options + counts + scoreboard in one board
+function drawResultsBoard(ctx, canvas) {
+  const {
+    roomId,
+    roundNumber,
+    questionText,
+    options,
+    winningOptionId,
+    counts,
+    leaderboard,
+  } = chalkState;
+
+  // Background
+  const grd = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  grd.addColorStop(0, "#1f3a2b");
+  grd.addColorStop(1, "#163024");
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.strokeStyle = "#fefae0";
+  ctx.lineWidth = 16;
+  ctx.strokeRect(24, 24, canvas.width - 48, canvas.height - 48);
+
+  const marginX = canvas.width * 0.12;
+
+  // Header
+  ctx.fillStyle = "#fefae0";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  ctx.font = `bold 40px "Marker Felt", "Chalkboard", system-ui`;
+  ctx.fillText(`Room ${roomId}`, marginX, canvas.height * 0.08);
+  ctx.font = `bold 34px "Marker Felt", "Chalkboard", system-ui`;
+  ctx.fillText(`Round ${roundNumber} — Results`, marginX, canvas.height * 0.08 + 46);
+
+  // Question
+  ctx.textAlign = "center";
+  ctx.font = `bold 34px "Marker Felt", "Chalkboard", system-ui`;
+  const qY = canvas.height * 0.22;
+  const qMaxWidth = canvas.width - marginX * 2;
+  const qWords = (questionText || "…").split(/\s+/);
+  const qLines = [];
+  let qLine = "";
+  qWords.forEach((w) => {
+    const test = qLine ? qLine + " " + w : w;
+    if (ctx.measureText(test).width > qMaxWidth && qLine) {
+      qLines.push(qLine);
+      qLine = w;
+    } else {
+      qLine = test;
+    }
+  });
+  if (qLine) qLines.push(qLine);
+
+  let curY = qY;
+  qLines.forEach((ln) => {
+    ctx.fillText(ln, canvas.width / 2, curY);
+    curY += 38;
+  });
+
+  // Options + counts
+  ctx.textAlign = "left";
+  ctx.font = `bold 30px "Marker Felt", "Chalkboard", system-ui`;
+  let optY = curY + 20;
+  options.forEach((opt) => {
+    const c = counts.find(
+      (entry) => Number(entry.optionId) === Number(opt.id)
+    );
+    const count = c ? c.count : 0;
+    const isWinner =
+      winningOptionId !== null &&
+      Number(opt.id) === Number(winningOptionId);
+
+    const votesWord = count === 1 ? "vote" : "votes";
+    const label = isWinner ? "  ← WINNER" : "";
+
+    ctx.fillText(
+      `• ${opt.text} — ${count} ${votesWord}${label}`,
+      marginX,
+      optY
+    );
+    optY += 34;
+  });
+
+  // Scoreboard
+  ctx.font = `bold 30px "Marker Felt", "Chalkboard", system-ui`;
+  optY += 22;
+  ctx.fillText("Scoreboard:", marginX, optY);
+  optY += 34;
+
+  leaderboard.forEach((p, idx) => {
+    const medal =
+      idx === 0 ? "👑" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : "•";
+    ctx.fillText(
+      `${medal} ${p.name} — ${p.points} pts`,
+      marginX,
+      optY
+    );
+    optY += 32;
+  });
+}
+
+function roundRect(ctx, x, y, w, h, r, fill, stroke) {
+  if (typeof r === "number") {
+    r = { tl: r, tr: r, br: r, bl: r };
+  } else {
+    r = Object.assign({ tl: 0, tr: 0, br: 0, bl: 0 }, r);
+  }
+  ctx.beginPath();
+  ctx.moveTo(x + r.tl, y);
+  ctx.lineTo(x + w - r.tr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r.tr);
+  ctx.lineTo(x + w, y + h - r.br);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r.br, y + h);
+  ctx.lineTo(x + r.bl, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r.bl);
+  ctx.lineTo(x, y + r.tl);
+  ctx.quadraticCurveTo(x, y, x + r.tl, y);
+  ctx.closePath();
+  if (fill) ctx.fill();
+  if (stroke) ctx.stroke();
+}
+
+function createBannerMesh(key, x) {
+  const { canvas, ctx, tex } = createBannerTexture(bannerState[key] || "");
+  bannerTextures[key] = { canvas, ctx, tex };
+
+  const geom = new THREE.PlaneGeometry(4.2, 6);
+  const mat = new THREE.MeshStandardMaterial({
+    map: tex,
+    roughness: 0.6,
+    metalness: 0.1,
+  });
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.position.set(x, 6.8, 14.7);
+  mesh.rotation.y = Math.PI; // face the room
+  mesh.castShadow = true;
+  mesh.receiveShadow = false;
+  scene.add(mesh);
+  bannerMeshes[key] = mesh;
+}
+
+function updateBanner(key) {
+  const info = bannerTextures[key];
+  if (!info || !info.ctx) return;
+  const { ctx, canvas, tex } = info;
+
+  // Left/right boards are special — they render question/results when active
+  if (key === "left" || key === "right") {
+    if (chalkMode === "question") {
+      drawQuestionBoard(ctx, canvas);
+    } else if (chalkMode === "results") {
+      drawResultsBoard(ctx, canvas);
+    } else {
+      // Idle / lobby / game-over: generic text
+      const grd = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      grd.addColorStop(0, "#1f3a2b");
+      grd.addColorStop(1, "#163024");
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, 0, canvas.height, canvas.height);
+
+      ctx.strokeStyle = "#fefae0";
+      ctx.lineWidth = 16;
+      ctx.strokeRect(24, 24, canvas.width - 48, canvas.height - 48);
+
+      drawBannerText(ctx, canvas, bannerState[key]);
+    }
+  } else {
+    // Center banner is always generic static-style
+    const grd = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    grd.addColorStop(0, "#1f3a2b");
+    grd.addColorStop(1, "#163024");
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.strokeStyle = "#fefae0";
+    ctx.lineWidth = 16;
+    ctx.strokeRect(24, 24, canvas.width - 48, canvas.height - 48);
+
+    drawBannerText(ctx, canvas, bannerState[key]);
+  }
+
+  tex.needsUpdate = true;
+}
+
+/**
+ * Public API so UI/overlay can update the chalkboards.
+ * You can pass null to leave one side unchanged.
+ */
+export function setCourtroomBanner(left, center, right) {
+  if (typeof left === "string") bannerState.left = left;
+  if (typeof center === "string") bannerState.center = center;
+  if (typeof right === "string") bannerState.right = right;
+
+  if (bannerTextures.left) updateBanner("left");
+  if (bannerTextures.center) updateBanner("center");
+  if (bannerTextures.right) updateBanner("right");
+}
+
+/**
+ * Called from overlay during QUESTION phase.
+ * Sets chalk mode + options + click callback.
+ */
+export function setChalkQuestionView({
+  roomId,
+  roundNumber,
+  questionText,
+  options,
+  remaining,
+  myVoteOptionId,
+  onOptionClick,
+}) {
+  chalkMode = "question";
+  chalkState.roomId = roomId;
+  chalkState.roundNumber = roundNumber;
+  chalkState.questionText = questionText || "";
+  chalkState.options = options || [];
+  chalkState.remaining = remaining;
+  chalkState.myVoteOptionId = myVoteOptionId ?? null;
+  chalkState.onOptionClick = typeof onOptionClick === "function" ? onOptionClick : null;
+  chalkState.optionBoxes = [];
+
+  if (bannerTextures.left) updateBanner("left");
+  if (bannerTextures.right) updateBanner("right");
+}
+
+/**
+ * Called from overlay during RESULTS phase.
+ */
+export function setChalkResultsView({
+  roomId,
+  roundNumber,
+  questionText,
+  options,
+  winningOptionId,
+  counts,
+  leaderboard,
+}) {
+  chalkMode = "results";
+  chalkState.roomId = roomId;
+  chalkState.roundNumber = roundNumber;
+  chalkState.questionText = questionText || "";
+  chalkState.options = options || [];
+  chalkState.winningOptionId = winningOptionId;
+  chalkState.counts = counts || [];
+  chalkState.leaderboard = leaderboard || [];
+
+  if (bannerTextures.left) updateBanner("left");
+  if (bannerTextures.right) updateBanner("right");
+}
+
+/* ------------------------------------------------------------------
+   HANDLE CHALKBOARD CLICK → maps to option + calls onOptionClick
+------------------------------------------------------------------- */
+
+function handleChalkClick(e) {
+  if (!renderer || !camera || !scene) return;
+  if (chalkMode !== "question") return;
+
+  const { options, optionBoxes, onOptionClick, myVoteOptionId } = chalkState;
+  if (!options || options.length === 0) return;
+  if (!onOptionClick) return;
+
+  const rect = renderer.domElement.getBoundingClientRect();
+  const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  pointer.set(x, y);
+
+  raycaster.setFromCamera(pointer, camera);
+
+  const boards = [];
+  if (bannerMeshes.left) boards.push(bannerMeshes.left);
+  if (bannerMeshes.right) boards.push(bannerMeshes.right);
+  if (!boards.length) return;
+
+  const hits = raycaster.intersectObjects(boards);
+  if (!hits.length) return;
+  const hit = hits[0];
+
+  // Map UV to canvas coordinates
+  const texInfo = bannerTextures.left || bannerTextures.right;
+  if (!texInfo) return;
+  const { canvas } = texInfo;
+  const u = hit.uv.x;
+  const v = hit.uv.y;
+  const px = u * canvas.width;
+  const py = (1 - v) * canvas.height;
+
+  const hitBox = optionBoxes.find(
+    (b) => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h
+  );
+  if (!hitBox) return;
+
+  onOptionClick(hitBox.id);
+  chalkState.myVoteOptionId = hitBox.id;
+
+  updateBanner("left");
+  updateBanner("right");
+}
+/* ------------------------------------------------------------------
+   LOBBY CHALKBOARD MODE — type name + room code directly on boards
+------------------------------------------------------------------- */
+
+export function setChalkLobbyView({
+  nameInput,
+  codeInput,
+  onCreateRoomClick,
+  onJoinRoomClick,
+}) {
+  chalkMode = "lobby";
+
+  // Draw left board with live-updating input fields
+  function updateLobbyBoards() {
+    // LEFT BOARD = ROOM CODE
+    bannerState.left =
+      `Enter Room Code:\n` +
+      `${(codeInput.value || "------").toUpperCase()}\n\n` +
+        `Only if joining a game`;
+
+
+    // CENTER BOARD = ACTION
+    bannerState.center =
+      `CREATE ROOM\nor\nJOIN ROOM`;
+
+    // RIGHT BOARD = DISPLAY NAME
+    bannerState.right =
+      `Display Name:\n` +
+      `${nameInput.value || "(tap to type)"}\n\n` +
+      `Tap board to edit`;
+
+    updateBanner("left");
+    updateBanner("center");
+    updateBanner("right");
+  }
+
+
+  // Track which field user is editing (name or code)
+  let editing = null; // "name" | "code" | null
+
+  // Listen for chalkboard taps specifically in lobby mode
+  function onLobbyTap(e) {
+    if (chalkMode !== "lobby") return;
+
+    const rect = renderer.domElement.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    pointer.set(x, y);
+    raycaster.setFromCamera(pointer, camera);
+
+    const boards = [
+      bannerMeshes.left,
+      bannerMeshes.center,
+      bannerMeshes.right,
+    ].filter(Boolean);
+
+    const hits = raycaster.intersectObjects(boards);
+    if (!hits.length) return;
+
+    const mesh = hits[0].object;
+
+    // LEFT = edit room code
+    if (mesh === bannerMeshes.left) {
+      editing = "code";
+      const newCode = prompt("Enter room code:", codeInput.value || "");
+      if (newCode !== null)
+        codeInput.value = newCode.toUpperCase().slice(0, 6);
+      updateLobbyBoards();
+      return;
+    }
+
+    // RIGHT = edit display name
+    if (mesh === bannerMeshes.right) {
+      editing = "name";
+      const newName = prompt("Enter display name:", nameInput.value || "");
+      if (newName !== null) nameInput.value = newName.slice(0, 18);
+      updateLobbyBoards();
+      return;
+    }
+
+
+    // CENTER = create or join
+    if (mesh === bannerMeshes.center) {
+      const code = codeInput.value.trim().toUpperCase();
+      if (code.length === 6 && typeof onJoinRoomClick === "function") {
+        onJoinRoomClick();
+      } else if (typeof onCreateRoomClick === "function") {
+        onCreateRoomClick();
+      }
+      return;
+    }
+  }
+
+  renderer.domElement.addEventListener("pointerup", (e) => {
+    if (localStorage.getItem("inRoom") === "1") return; // disable lobby interactions in room
+    onLobbyTap(e);
+  });
+
+  return function cleanupLobby() {
+    if (renderer) {
+      renderer.domElement.removeEventListener("pointerup", onLobbyTap);
+    }
+    // leave question/results only
+    chalkMode = "idle";
+  };
+}
+
+
+
+
+/* ------------------------------------------------------------------
+   INIT SCENE — REAL 3D COURTROOM
+------------------------------------------------------------------- */
 
 export function initScene(containerId = "table-app") {
   const container = document.getElementById(containerId);
@@ -158,7 +889,6 @@ export function initScene(containerId = "table-app") {
   console.log("🎬 initScene() — 3D Courtroom loaded");
 
   scene = new THREE.Scene();
-  // light neutral background so corners don't go to black
   scene.background = new THREE.Color(0xe9edf5);
 
   renderer = new THREE.WebGLRenderer({
@@ -175,32 +905,25 @@ export function initScene(containerId = "table-app") {
   renderer.domElement.style.touchAction = "none";
   container.appendChild(renderer.domElement);
 
-/* ---------------- CAMERA (new establishing shot) ---------------- */
+  /* ---------------- CAMERA (establishing shot) ---------------- */
 
-camera = new THREE.PerspectiveCamera(
-  60,
-  window.innerWidth / window.innerHeight,
-  0.1,
-  200
-);
+  camera = new THREE.PerspectiveCamera(
+    60,
+    window.innerWidth / window.innerHeight,
+    0.1,
+    200
+  );
+  camera.position.set(0, 4, 0);
+  camera.lookAt(0, 4, 10);
 
-// High, far, behind benches
-camera.position.set(0, 8, -18);
+  /* ---------------- LIGHTING ---------------- */
 
-// Look at the judge bench area (roughly center front)
-camera.lookAt(0, 4, 10);
-
-  /* ---------------- LIGHTING — BRIGHT BUT WITH DEPTH ---------------- */
-
-  // Sky + ground light for bright cartoon feel
   const hemi = new THREE.HemisphereLight(0xffffff, 0xf5e7d0, 0.9);
   scene.add(hemi);
 
-  // Soft overall ambient to lift shadows
   const ambient = new THREE.AmbientLight(0xffffff, 0.3);
   scene.add(ambient);
 
-  // Main "sun" from front-right, casting shadows
   const sun = new THREE.DirectionalLight(0xffffff, 1.1);
   sun.position.set(10, 18, 10);
   sun.castShadow = true;
@@ -214,7 +937,6 @@ camera.lookAt(0, 4, 10);
   sun.shadow.camera.bottom = -10;
   scene.add(sun);
 
-  // Fill from left / right so faces aren’t harshly lit
   const fillLeft = new THREE.PointLight(0xfff1c1, 0.7, 35);
   fillLeft.position.set(-12, 10, 4);
   scene.add(fillLeft);
@@ -223,13 +945,12 @@ camera.lookAt(0, 4, 10);
   fillRight.position.set(12, 10, 4);
   scene.add(fillRight);
 
-  /* ---------------- FLOOR & CARPETED WELL ---------------- */
+  /* ---------------- FLOOR & WELL ---------------- */
 
-  // Big rectangular floor for the whole room
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(34, 26),
     new THREE.MeshStandardMaterial({
-      color: 0xe3e0da, // light stone / wood
+      color: 0xe3e0da,
       roughness: 0.7,
       metalness: 0.05,
     })
@@ -239,7 +960,6 @@ camera.lookAt(0, 4, 10);
   floor.receiveShadow = true;
   scene.add(floor);
 
-  // Raised red carpet "well" where players sit & move
   const wellCarpet = new THREE.Mesh(
     new THREE.BoxGeometry(18, 0.3, 10),
     new THREE.MeshStandardMaterial({
@@ -253,7 +973,6 @@ camera.lookAt(0, 4, 10);
   wellCarpet.receiveShadow = true;
   scene.add(wellCarpet);
 
-  // Gold trim around the well
   const wellTrim = new THREE.Mesh(
     new THREE.BoxGeometry(18.6, 0.15, 10.6),
     new THREE.MeshStandardMaterial({
@@ -266,7 +985,7 @@ camera.lookAt(0, 4, 10);
   wellTrim.receiveShadow = true;
   scene.add(wellTrim);
 
-  /* ---------------- RAIL (bar between players and gallery) ---------------- */
+  /* ---------------- RAIL ---------------- */
 
   const rail = new THREE.Mesh(
     new THREE.BoxGeometry(18, 0.7, 0.25),
@@ -276,11 +995,10 @@ camera.lookAt(0, 4, 10);
       metalness: 0.05,
     })
   );
-  rail.position.set(0, 0.9, 0); // roughly in front of avatars
+  rail.position.set(0, 0.9, 0);
   rail.castShadow = true;
   scene.add(rail);
 
-  // Simple posts on the rail
   for (let i = -4; i <= 4; i++) {
     const post = new THREE.Mesh(
       new THREE.BoxGeometry(0.22, 1.2, 0.22),
@@ -296,7 +1014,7 @@ camera.lookAt(0, 4, 10);
     scene.add(post);
   }
 
-  /* ---------------- AUDIENCE BENCHES (left/right) ---------------- */
+  /* ---------------- AUDIENCE BENCHES ---------------- */
 
   function createBench(x, z) {
     const bench = new THREE.Mesh(
@@ -331,43 +1049,36 @@ camera.lookAt(0, 4, 10);
   createBench(-5.5, -7);
   createBench(5.5, -7);
 
-/* ===== FIXED AUDIENCE ROBOTS ===== */
+  /* ---------------- AUDIENCE ROBOTS ---------------- */
 
-function spawnAudienceRobot(x, z, rotationY = 0) {
-  const bot = createAvatar("BOT");
+  function spawnAudienceRobot(x, z, rotationY = 0) {
+    const bot = createAvatar("BOT");
+    bot.scale.set(0.7, 0.7, 0.7);
+    bot.position.set(x, 0.75, z);
+    bot.rotation.y = rotationY;
+    scene.add(bot);
+  }
 
-  // Smaller so they fit benches better
-  bot.scale.set(0.7, 0.7, 0.7);
+  // Left benches
+  spawnAudienceRobot(-8.0, -3.3, 0);
+  spawnAudienceRobot(-5.5, -3.3, 0);
+  spawnAudienceRobot(-3.0, -3.3, 0);
 
-  // Sit ON bench (bench seat is at y = 0.4)
-  bot.position.set(x, 0.75, z);
+  spawnAudienceRobot(-8.0, -6.0, 0);
+  spawnAudienceRobot(-5.5, -6.0, 0);
+  spawnAudienceRobot(-3.0, -6.0, 0);
 
-  // Face judge bench (toward +Z direction)
-  bot.rotation.y = rotationY;
+  // Right benches
+  spawnAudienceRobot(8.0, -3.3, 0);
+  spawnAudienceRobot(5.5, -3.3, 0);
+  spawnAudienceRobot(3.0, -3.3, 0);
 
-  scene.add(bot);
-}
-
-/* ---- LEFT BENCHES (face forward → rotationY = 0) ---- */
-spawnAudienceRobot(-8.0, -3.3, 0);   // row 1 left seat A
-spawnAudienceRobot(-5.5, -3.3, 0);   // row 1 left seat B
-spawnAudienceRobot(-3.0, -3.3, 0); 
-
-spawnAudienceRobot(-8.0, -6.0, 0);   // row 2 left seat A
-spawnAudienceRobot(-5.5, -6.0, 0); 
-spawnAudienceRobot(-3.0, -6.0, 0);   // row 2 left seat B
-
-spawnAudienceRobot(8.0, -3.3, 0);   // row 1 left seat A
-spawnAudienceRobot(5.5, -3.3, 0);   // row 1 left seat B
-spawnAudienceRobot(3.0, -3.3, 0); 
-
-spawnAudienceRobot(8.0, -6.0, 0);   // row 2 left seat A
-spawnAudienceRobot(5.5, -6.0, 0); 
-spawnAudienceRobot(3.0, -6.0, 0);   // row 2 left seat B
+  spawnAudienceRobot(8.0, -6.0, 0);
+  spawnAudienceRobot(5.5, -6.0, 0);
+  spawnAudienceRobot(3.0, -6.0, 0);
 
   /* ---------------- JUDGE PLATFORM & BENCH ---------------- */
 
-  // Raised platform
   const judgePlatform = new THREE.Mesh(
     new THREE.BoxGeometry(18, 1.0, 4),
     new THREE.MeshStandardMaterial({
@@ -380,7 +1091,6 @@ spawnAudienceRobot(3.0, -6.0, 0);   // row 2 left seat B
   judgePlatform.receiveShadow = true;
   scene.add(judgePlatform);
 
-  // Steps up to platform
   const step1 = new THREE.Mesh(
     new THREE.BoxGeometry(10, 0.4, 1.3),
     new THREE.MeshStandardMaterial({
@@ -405,7 +1115,6 @@ spawnAudienceRobot(3.0, -6.0, 0);   // row 2 left seat B
   step2.receiveShadow = true;
   scene.add(step2);
 
-  // Judge bench
   const judgeBench = new THREE.Mesh(
     new THREE.BoxGeometry(10, 2.4, 1.4),
     new THREE.MeshStandardMaterial({
@@ -419,7 +1128,6 @@ spawnAudienceRobot(3.0, -6.0, 0);   // row 2 left seat B
   judgeBench.receiveShadow = true;
   scene.add(judgeBench);
 
-  // Bench top lip
   const benchTop = new THREE.Mesh(
     new THREE.BoxGeometry(10.4, 0.25, 1.6),
     new THREE.MeshStandardMaterial({
@@ -432,164 +1140,101 @@ spawnAudienceRobot(3.0, -6.0, 0);   // row 2 left seat B
   benchTop.castShadow = true;
   scene.add(benchTop);
 
-  // Simple circular emblem behind judge
-  const emblem = new THREE.Mesh(
-    new THREE.CircleGeometry(2.2, 32),
-    new THREE.MeshStandardMaterial({
-      color: 0xf9d548,
-      emissive: 0xf9d548,
-      emissiveIntensity: 0.35,
-    })
-  );
-  emblem.position.set(0, 5.5, 14.6);
-  emblem.rotation.y = Math.PI; // face the room
-  scene.add(emblem);
+  /* ---------------- JUDGE ROBOT ---------------- */
 
-/* ============================================================
-   JUDGE ROBOT — correct size, correct position, correct wig
-   ============================================================ */
+  function spawnJudgeRobot() {
+    const judge = createAvatar("JUDGE");
+    judge.scale.set(0.7, 0.7, 0.7);
+    judge.position.set(0, 1, 11.4);
+    judge.rotation.y = Math.PI;
+    scene.add(judge);
 
-function spawnJudgeRobot() {
-  const judge = createAvatar("JUDGE");
-
-  // Perfect judge scale
-  judge.scale.set(0.55, 0.55, 0.55);
-
-  // Correct podium height + correct Z placement
-  // Platform top is around y = 1.0, bench top around y = 2.9
-  // So the judge feet should be at ~y = 2.95
-  judge.position.set(0, 2.95, 12);
-
-  // Face the audience
-  judge.rotation.y = Math.PI;
-
-  scene.add(judge);
-  
-}
-
-// CALL IT
-spawnJudgeRobot();
-
-
-
-/* ---------------- FULL COURTROOM WALLS (Rectangular Room) ---------------- */
-
-// ===== FRONT WALL (behind judge desk) =====
-const frontWall = new THREE.Mesh(
-  new THREE.PlaneGeometry(30, 12),
-  new THREE.MeshStandardMaterial({
-    color: 0xdde1f2,
-    roughness: 0.9,
-    metalness: 0.0,
-  })
-);
-frontWall.position.set(0, 6, 15);   // centered, facing players
-frontWall.rotation.y = Math.PI;     // flip so visible side faces inward
-scene.add(frontWall);
-
-
-// ===== BACK WALL (behind the jury / benches) =====
-const backWall = new THREE.Mesh(
-  new THREE.PlaneGeometry(30, 12),
-  new THREE.MeshStandardMaterial({
-    color: 0xdde1f2,
-    roughness: 0.9,
-    metalness: 0.0,
-  })
-);
-backWall.position.set(0, 6, -15);
-backWall.rotation.y = 0;            // faces inward automatically
-scene.add(backWall);
-
-
-// ===== LEFT WALL =====
-const leftWall = new THREE.Mesh(
-  new THREE.PlaneGeometry(30, 12),
-  new THREE.MeshStandardMaterial({
-    color: 0xd1dbf0,
-    roughness: 0.9,
-    metalness: 0.0,
-  })
-);
-leftWall.position.set(-15, 6, 0);
-leftWall.rotation.y = Math.PI / 2;
-scene.add(leftWall);
-
-
-// ===== RIGHT WALL =====
-const rightWall = new THREE.Mesh(
-  new THREE.PlaneGeometry(30, 12),
-  new THREE.MeshStandardMaterial({
-    color: 0xd1dbf0,
-    roughness: 0.9,
-    metalness: 0.0,
-  })
-);
-rightWall.position.set(15, 6, 0);
-rightWall.rotation.y = -Math.PI / 2;
-scene.add(rightWall);
-
-
-// ===== TOP WHITE TRIM =====
-const trimMat = new THREE.MeshStandardMaterial({
-  color: 0xffffff,
-  roughness: 0.4,
-  metalness: 0.1,
-});
-
-const trimFront = new THREE.Mesh(new THREE.BoxGeometry(30, 0.4, 0.3), trimMat);
-trimFront.position.set(0, 12.1, 15);
-scene.add(trimFront);
-
-const trimBack = new THREE.Mesh(new THREE.BoxGeometry(30, 0.4, 0.3), trimMat);
-trimBack.position.set(0, 12.1, -15);
-scene.add(trimBack);
-
-const trimLeft = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.4, 30), trimMat);
-trimLeft.position.set(-15, 12.1, 0);
-scene.add(trimLeft);
-
-const trimRight = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.4, 30), trimMat);
-trimRight.position.set(15, 12.1, 0);
-scene.add(trimRight);
-
-  /* ---------------- WINDOWS ON BACK WALL ---------------- */
-
-  function createWindow(x) {
-    const frame = new THREE.Mesh(
-      new THREE.BoxGeometry(4, 6, 0.4),
-      new THREE.MeshStandardMaterial({
-        color: 0xf3f4f6,
-        roughness: 0.4,
-        metalness: 0.1,
-      })
-    );
-    frame.position.set(x, 7, 14.75);
-    frame.castShadow = true;
-    frame.receiveShadow = true;
-
-    const glass = new THREE.Mesh(
-      new THREE.PlaneGeometry(3.2, 5.2),
-      new THREE.MeshStandardMaterial({
-        color: 0xbfe3ff,
-        emissive: 0xbfe3ff,
-        emissiveIntensity: 0.5,
-        transparent: true,
-        opacity: 0.9,
-      })
-    );
-    glass.position.set(0, 0, 0.22);
-    glass.rotation.y = Math.PI; // facing inward
-    frame.add(glass);
-
-    return frame;
+    const head = judge.userData.headGroup || judge;
   }
 
-  scene.add(createWindow(-7));
-  scene.add(createWindow(0));
-  scene.add(createWindow(7));
+  spawnJudgeRobot();
 
-  /* ---------------- INPUT + ORIENTATION ---------------- */
+  /* ---------------- COURTROOM WALLS ---------------- */
+
+  const frontWall = new THREE.Mesh(
+    new THREE.PlaneGeometry(30, 12),
+    new THREE.MeshStandardMaterial({
+      color: 0xdde1f2,
+      roughness: 0.9,
+      metalness: 0.0,
+    })
+  );
+  frontWall.position.set(0, 6, 15);
+  frontWall.rotation.y = Math.PI;
+  scene.add(frontWall);
+
+  const backWall = new THREE.Mesh(
+    new THREE.PlaneGeometry(30, 12),
+    new THREE.MeshStandardMaterial({
+      color: 0xdde1f2,
+      roughness: 0.9,
+      metalness: 0.0,
+    })
+  );
+  backWall.position.set(0, 6, -15);
+  scene.add(backWall);
+
+  const leftWall = new THREE.Mesh(
+    new THREE.PlaneGeometry(30, 12),
+    new THREE.MeshStandardMaterial({
+      color: 0xd1dbf0,
+      roughness: 0.9,
+      metalness: 0.0,
+    })
+  );
+  leftWall.position.set(-15, 6, 0);
+  leftWall.rotation.y = Math.PI / 2;
+  scene.add(leftWall);
+
+  const rightWall = new THREE.Mesh(
+    new THREE.PlaneGeometry(30, 12),
+    new THREE.MeshStandardMaterial({
+      color: 0xd1dbf0,
+      roughness: 0.9,
+      metalness: 0.0,
+    })
+  );
+  rightWall.position.set(15, 6, 0);
+  rightWall.rotation.y = -Math.PI / 2;
+  scene.add(rightWall);
+
+  const trimMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    roughness: 0.4,
+    metalness: 0.1,
+  });
+
+  const trimFront = new THREE.Mesh(new THREE.BoxGeometry(30, 0.4, 0.3), trimMat);
+  trimFront.position.set(0, 12.1, 15);
+  scene.add(trimFront);
+
+  const trimBack = new THREE.Mesh(new THREE.BoxGeometry(30, 0.4, 0.3, 0.3), trimMat);
+  trimBack.position.set(0, 12.1, -15);
+  scene.add(trimBack);
+
+  const trimLeft = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.4, 30), trimMat);
+  trimLeft.position.set(-15, 12.1, 0);
+  scene.add(trimLeft);
+
+  const trimRight = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.4, 30), trimMat);
+  trimRight.position.set(15, 12.1, 0);
+  scene.add(trimRight);
+
+  /* ---------------- CHALKBOARD BANNERS (create meshes) ---------------- */
+
+  createBannerMesh("left", -7);
+  createBannerMesh("center", 0);
+  createBannerMesh("right", 7);
+
+  // Initialize center with default title
+  updateBanner("center");
+
+  /* ---------------- INPUT & RESIZE ---------------- */
 
   renderer.domElement.addEventListener("pointerdown", onPointerDown);
   window.addEventListener("pointermove", onPointerMove);
@@ -603,7 +1248,9 @@ scene.add(trimRight);
   animate();
 }
 
-/* -------------- WINDOW RESIZE (unchanged) ---------------- */
+/* ------------------------------------------------------------------
+   WINDOW RESIZE
+------------------------------------------------------------------- */
 
 function onWindowResize() {
   if (!camera || !renderer) return;
@@ -612,7 +1259,9 @@ function onWindowResize() {
   renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-/* -------------- PLAYER AVATARS (unchanged logic) ---------------- */
+/* ------------------------------------------------------------------
+   PLAYER AVATARS
+------------------------------------------------------------------- */
 
 export function setPlayersOnTable(players) {
   console.log("🎯 setPlayersOnTable:", players);
@@ -626,7 +1275,6 @@ export function setPlayersOnTable(players) {
   const limited = players.slice(0, TOTAL_SEATS);
   const currentIds = new Set(limited.map((p) => p.id));
 
-  // remove missing players
   for (const [id, group] of avatars.entries()) {
     if (!currentIds.has(id)) {
       scene.remove(group);
@@ -634,7 +1282,11 @@ export function setPlayersOnTable(players) {
     }
   }
 
-  const radius = 4.8;
+  // --- CLEAN EVEN SPACING ALONG THE WELL ---
+  const total = limited.length;
+  const spacing = 3.4;   // ⬅️ improved
+  const baseZ = 3.8;     // ⬅️ improved
+  const baseY = 1.6;
 
   limited.forEach((p, idx) => {
     let group = avatars.get(p.id);
@@ -644,20 +1296,22 @@ export function setPlayersOnTable(players) {
       scene.add(group);
     }
 
-    const angle = SEAT_ANGLES[idx];
-    const x = Math.sin(angle) * radius;
-    const z = Math.cos(angle) * radius * 0.65;
+    const offset = (idx - (total - 1) / 2) * spacing;
 
-    group.position.set(x, 1.6, z);
-    group.lookAt(0, 2.0, 0);
+    group.position.set(offset, baseY, baseZ);
 
-    group.position.y = 1.6;
+    // ❌ REMOVE lookAt because it interferes with camera & head tracking
+    // group.lookAt(0, 2.0, 6);
+
     group.castShadow = true;
     group.receiveShadow = true;
   });
 }
 
-/* -------------- READY BADGES (unchanged logic) ---------------- */
+
+/* ------------------------------------------------------------------
+   READY BADGES
+------------------------------------------------------------------- */
 
 export function updateReadyBadges(readyById = {}) {
   if (!scene) return;
@@ -683,11 +1337,13 @@ export function updateReadyBadges(readyById = {}) {
       info.state = desiredState;
     }
 
-    info.sprite.position.set(0, 5.0, 0);
+    info.sprite.position.set(0, 8.0, 0);
   }
 }
 
-/* -------------- HEAD LOOK & CAMERA (unchanged) ---------------- */
+/* ------------------------------------------------------------------
+   HEAD LOOK & CAMERA FOLLOW
+------------------------------------------------------------------- */
 
 function updateHeadLook() {
   const id = myPlayerId;
@@ -713,33 +1369,28 @@ function updateCameraFollow() {
   const headAnchor =
     avatar.userData.headAnchor || avatar.userData.headGroup || avatar;
 
-  // 1. Rotate the ENTIRE body left/right (yaw)
   avatar.rotation.y = yaw;
 
-  // 2. Rotate ONLY the head up/down (pitch)
   const MAX_PITCH = 0.55;
   const MIN_PITCH = -0.35;
   headAnchor.rotation.x = THREE.MathUtils.clamp(pitch, MIN_PITCH, MAX_PITCH);
 
-  // 3. Camera offsets — ALWAYS in front of the face, so never clips
   const CAMERA_FORWARD = 0.25;
   const CAMERA_UP = 0.15;
 
-  // Build world position of the camera
   const camLocal = new THREE.Vector3(0, CAMERA_UP, CAMERA_FORWARD);
   headAnchor.localToWorld(camLocal);
 
-  // Build look target further forward so camera always looks ahead
   const lookLocal = new THREE.Vector3(0, CAMERA_UP, CAMERA_FORWARD + 1.5);
   headAnchor.localToWorld(lookLocal);
 
-  // 4. Smooth follow (optional)
   camera.position.lerp(camLocal, 0.35);
   camera.lookAt(lookLocal);
 }
 
-
-/* -------------- MAIN ANIMATION LOOP ---------------- */
+/* ------------------------------------------------------------------
+   MAIN ANIMATION LOOP
+------------------------------------------------------------------- */
 
 function animate() {
   requestAnimationFrame(animate);
@@ -747,7 +1398,6 @@ function animate() {
 
   const t = clock.getElapsedTime();
 
-  // Soft idle floating animation for all avatars
   for (const [id, avatar] of avatars.entries()) {
     avatar.position.y = 1.6 + Math.sin(t * 2 + id.length) * 0.04;
   }

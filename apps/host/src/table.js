@@ -19,6 +19,7 @@ let players = [];
 let readyById = {};
 let allReady = false;
 let gameStarted = false;
+let cleanupLobby = null;
 
 // Round / voting state
 let currentRound = null;
@@ -46,8 +47,10 @@ function isHost() {
 
 // ---------------- UI WRAPPERS ------------------
 function showLobbyOverlay() {
+  localStorage.removeItem("inRoom");
   const savedName = localStorage.getItem("playerName") || "";
-  renderLobbyOverlay({
+  // ❗ store cleanup returned from renderLobbyOverlay → scene removes lobby tap
+  cleanupLobby = renderLobbyOverlay({
     savedName,
     onCreateRoomClick,
     onJoinRoomClick,
@@ -55,6 +58,12 @@ function showLobbyOverlay() {
 }
 
 function showInRoomOverlay() {
+  localStorage.setItem("inRoom", "1");
+  if (cleanupLobby) {
+    cleanupLobby();
+    cleanupLobby = null;
+  }
+
   renderInRoomOverlay({
     roomId: roomId || "------",
     players,
@@ -205,8 +214,6 @@ function maybeAutoStart() {
 
 function handleOptionClick(optionId) {
   if (!socket || !roomId || !currentRound) return;
-  if (myVoteOptionId) return;
-
   console.log("🟢 Voting option:", optionId);
 
   socket.emit(

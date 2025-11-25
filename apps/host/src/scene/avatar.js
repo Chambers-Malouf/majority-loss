@@ -182,7 +182,7 @@ export function createAvatar(name = "BOT") {
 
   // ---------------- NAME TAG SPRITE ----------------
   const label = makeNameSprite(name);
-  label.position.set(0, 3.8, 0);
+  label.position.set(0, 4.8, 0);
   group.add(label);
 
   // ---------------- HEAD ANCHOR FOR CAMERA ---------
