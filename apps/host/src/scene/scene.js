@@ -261,7 +261,7 @@ function onPointerUp(e) {
 }
 
 /* ------------------------------------------------------------------
-   CHALKBOARD BANNERS (left / center / right)
+   CHALKBOARD BANNERS (left / center / right) — ★ PATCHED FOR LARGE TEXT ★
 ------------------------------------------------------------------- */
 
 const bannerMeshes = { left: null, center: null, right: null };
@@ -273,16 +273,16 @@ let bannerState = {
 };
 
 // Chalk state for question / results / lobby
-let chalkMode = "idle"; // "idle" | "question" | "results" | "lobby"
+let chalkMode = "idle"; 
 let chalkState = {
   roomId: "------",
   roundNumber: 1,
   questionText: "",
-  options: [], // { id, text }
+  options: [],
   remaining: null,
   myVoteOptionId: null,
   onOptionClick: null,
-  optionBoxes: [], // { id, x, y, w, h } canvas coordinates
+  optionBoxes: [],
   winningOptionId: null,
   counts: [],
   leaderboard: [],
@@ -293,7 +293,6 @@ function createBannerTexture(initialText = "") {
   canvas.width = 1024;
   canvas.height = 1024;
   const ctx = canvas.getContext("2d");
-  if (!ctx) return { canvas, ctx: null };
 
   const grd = ctx.createLinearGradient(0, 0, 0, canvas.height);
   grd.addColorStop(0, "#1f3a2b");
@@ -313,12 +312,15 @@ function createBannerTexture(initialText = "") {
   return { canvas, ctx, tex };
 }
 
-// Auto-scaling generic chalk text
+/* -------------------------------------------------------------
+   ★ PATCHED BANNER TEXT — SEVERELY LARGER AUTO-SCALING ★
+------------------------------------------------------------- */
+
 function drawBannerText(ctx, canvas, text) {
   if (!text) return;
 
-  const marginX = canvas.width * 0.1;
-  const marginY = canvas.height * 0.12;
+  const marginX = canvas.width * 0.05;   // smaller margins = larger text
+  const marginY = canvas.height * 0.06;
   const maxWidth = canvas.width - marginX * 2;
   const maxHeight = canvas.height - marginY * 2;
 
@@ -328,10 +330,10 @@ function drawBannerText(ctx, canvas, text) {
 
   const paragraphs = text.split(/\n/);
 
-  let fontSize = 70;
+  let fontSize = 110;   // was 70 — now MUCH bigger
   let lines = [];
-  const lineHeightMult = 1.22;
-  const minFont = 18;
+  const lineHeightMult = 1.05;  // tighter packing
+  const minFont = 22;
 
   function wrapLines(size) {
     ctx.font = `bold ${size}px "Marker Felt", "Chalkboard", system-ui`;
@@ -342,8 +344,7 @@ function drawBannerText(ctx, canvas, text) {
       let line = "";
       for (const w of words) {
         const test = line ? line + " " + w : w;
-        const width = ctx.measureText(test).width;
-        if (width > maxWidth && line) {
+        if (ctx.measureText(test).width > maxWidth && line) {
           wrapped.push(line);
           line = w;
         } else {
@@ -358,10 +359,12 @@ function drawBannerText(ctx, canvas, text) {
   while (fontSize >= minFont) {
     lines = wrapLines(fontSize);
     const totalHeight = lines.length * (fontSize * lineHeightMult);
+
     const widthOK = lines.every(
       (line) => ctx.measureText(line).width <= maxWidth
     );
     const heightOK = totalHeight <= maxHeight;
+
     if (widthOK && heightOK) break;
     fontSize -= 2;
   }
@@ -376,7 +379,9 @@ function drawBannerText(ctx, canvas, text) {
   }
 }
 
-/* ---------------- QUESTION / RESULTS DRAW ---------------- */
+/* =============================================================
+   ★ PATCHED QUESTION BOARD — EVERY FONT & BOX INCREASED ★
+============================================================= */
 
 function drawQuestionBoard(ctx, canvas) {
   const {
@@ -401,27 +406,28 @@ function drawQuestionBoard(ctx, canvas) {
   const marginX = canvas.width * 0.14;
   const headerY = canvas.height * 0.09;
 
-  // Header
+  // Header — MUCH BIGGER
   ctx.fillStyle = "#fefae0";
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
-  ctx.font = `bold 40px "Marker Felt", "Chalkboard", system-ui`;
+  ctx.font = `bold 60px "Marker Felt", "Chalkboard", system-ui`;
   ctx.fillText(`Room ${roomId}`, marginX, headerY);
-  ctx.font = `bold 34px "Marker Felt", "Chalkboard", system-ui`;
-  ctx.fillText(`Round ${roundNumber}`, marginX, headerY + 46);
+  ctx.font = `bold 50px "Marker Felt", "Chalkboard", system-ui`;
+  ctx.fillText(`Round ${roundNumber}`, marginX, headerY + 60);
 
   if (typeof remaining === "number") {
     ctx.textAlign = "right";
-    ctx.font = `bold 34px "Marker Felt", "Chalkboard", system-ui`;
-    ctx.fillText(`${remaining}s left`, canvas.width - marginX, headerY + 10);
+    ctx.font = `bold 48px "Marker Felt", "Chalkboard", system-ui`;
+    ctx.fillText(`${remaining}s`, canvas.width - marginX, headerY + 10);
   }
 
-  // Question text
-  const questionTopY = headerY + 110;
+  // QUESTION TEXT — MASSIVE
+  const questionTopY = headerY + 140;
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
+
   const qMaxWidth = canvas.width - marginX * 2;
-  let qFont = 40;
+  let qFont = 70;
   ctx.font = `bold ${qFont}px "Marker Felt", "Chalkboard", system-ui`;
 
   const qLines = [];
@@ -444,19 +450,19 @@ function drawQuestionBoard(ctx, canvas) {
     qY += qFont * 1.2;
   });
 
-  // Helper text
-  ctx.font = `italic 28px "Marker Felt", "Chalkboard", system-ui`;
+  // Helper text — bigger & readable
+  ctx.font = `italic 40px "Marker Felt", "Chalkboard", system-ui`;
   ctx.fillText(
-    "Tap a box to choose. A chalk circle will mark your vote.",
+    "Tap a box to choose.",
     canvas.width / 2,
-    qY + 10
+    qY + 20
   );
 
-  // Options
-  const startY = qY + 70;
-  const boxWidth = canvas.width * 0.76;
-  const boxHeight = 90;
-  const gap = 26;
+  // OPTIONS — MUCH BIGGER
+  const startY = qY + 90;
+  const boxWidth = canvas.width * 0.8;
+  const boxHeight = 130;
+  const gap = 40;
 
   chalkState.optionBoxes = [];
 
@@ -469,19 +475,20 @@ function drawQuestionBoard(ctx, canvas) {
     const isSelected = myVoteOptionId === opt.id;
 
     ctx.fillStyle = isSelected ? "#325f4a" : "#274131";
-    roundRect(ctx, x, y, boxWidth, boxHeight, 18, true, false);
+    roundRect(ctx, x, y, boxWidth, boxHeight, 22, true, false);
 
     ctx.strokeStyle = "#fefae0";
-    ctx.lineWidth = 4;
-    roundRect(ctx, x, y, boxWidth, boxHeight, 18, false, true);
+    ctx.lineWidth = 5;
+    roundRect(ctx, x, y, boxWidth, boxHeight, 22, false, true);
 
     ctx.fillStyle = "#fefae0";
-    const innerMarginX = 22;
+
+    const innerMarginX = 35;
     const innerMaxWidth = boxWidth - innerMarginX * 2;
     const cx = x + innerMarginX;
     const cy = y + boxHeight / 2;
 
-    let oFont = 30;
+    let oFont = 48;  // BIGGER
     ctx.font = `bold ${oFont}px "Marker Felt", "Chalkboard", system-ui`;
 
     const words = opt.text.split(/\s+/);
@@ -512,8 +519,8 @@ function drawQuestionBoard(ctx, canvas) {
       ctx.ellipse(
         x + boxWidth / 2,
         y + boxHeight / 2,
-        boxWidth / 2 + 10,
-        boxHeight / 2 + 6,
+        (boxWidth / 2) + 16,
+        (boxHeight / 2) + 12,
         0,
         0,
         Math.PI * 2
@@ -524,6 +531,10 @@ function drawQuestionBoard(ctx, canvas) {
     chalkState.optionBoxes.push({ id: opt.id, x, y, w: boxWidth, h: boxHeight });
   });
 }
+
+/* =============================================================
+   ★ PATCHED RESULTS BOARD — EVERYTHING BIGGER & CLEAR ★
+============================================================= */
 
 function drawResultsBoard(ctx, canvas) {
   const {
@@ -551,22 +562,27 @@ function drawResultsBoard(ctx, canvas) {
   ctx.fillStyle = "#fefae0";
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
-  ctx.font = `bold 40px "Marker Felt", "Chalkboard", system-ui`;
+
+  // BIG header
+  ctx.font = `bold 60px "Marker Felt", "Chalkboard", system-ui`;
   ctx.fillText(`Room ${roomId}`, marginX, canvas.height * 0.08);
-  ctx.font = `bold 34px "Marker Felt", "Chalkboard", system-ui`;
+  ctx.font = `bold 52px "Marker Felt", "Chalkboard", system-ui`;
   ctx.fillText(
     `Round ${roundNumber} — Results`,
     marginX,
-    canvas.height * 0.08 + 46
+    canvas.height * 0.08 + 66
   );
 
+  // QUESTION TEXT — Larger
   ctx.textAlign = "center";
-  ctx.font = `bold 34px "Marker Felt", "Chalkboard", system-ui`;
-  const qY = canvas.height * 0.22;
+  ctx.font = `bold 52px "Marker Felt", "Chalkboard", system-ui`;
+  const qY = canvas.height * 0.23;
   const qMaxWidth = canvas.width - marginX * 2;
+
   const qWords = (questionText || "…").split(/\s+/);
   const qLines = [];
   let qLine = "";
+
   qWords.forEach((w) => {
     const test = qLine ? qLine + " " + w : w;
     if (ctx.measureText(test).width > qMaxWidth && qLine) {
@@ -581,11 +597,12 @@ function drawResultsBoard(ctx, canvas) {
   let curY = qY;
   qLines.forEach((ln) => {
     ctx.fillText(ln, canvas.width / 2, curY);
-    curY += 38;
+    curY += 58;
   });
 
+  // OPTIONS — Much bigger
   ctx.textAlign = "left";
-  ctx.font = `bold 30px "Marker Felt", "Chalkboard", system-ui`;
+  ctx.font = `bold 46px "Marker Felt", "Chalkboard", system-ui`;
   let optY = curY + 20;
 
   options.forEach((opt) => {
@@ -593,9 +610,8 @@ function drawResultsBoard(ctx, canvas) {
       (entry) => Number(entry.optionId) === Number(opt.id)
     );
     const count = c ? c.count : 0;
-    const isWinner =
-      winningOptionId !== null &&
-      Number(opt.id) === Number(winningOptionId);
+    const isWinner = winningOptionId !== null &&
+                     Number(opt.id) === Number(winningOptionId);
 
     const votesWord = count === 1 ? "vote" : "votes";
     const label = isWinner ? "  ← WINNER" : "";
@@ -605,25 +621,30 @@ function drawResultsBoard(ctx, canvas) {
       marginX,
       optY
     );
-    optY += 34;
+    optY += 48;
   });
 
-  ctx.font = `bold 30px "Marker Felt", "Chalkboard", system-ui`;
-  optY += 22;
+  ctx.font = `bold 48px "Marker Felt", "Chalkboard", system-ui`;
+  optY += 30;
   ctx.fillText("Scoreboard:", marginX, optY);
-  optY += 34;
+  optY += 50;
 
   leaderboard.forEach((p, idx) => {
     const medal =
-      idx === 0 ? "👑" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : "•";
+      idx === 0 ? "👑" :
+      idx === 1 ? "🥈" :
+      idx === 2 ? "🥉" :
+      "•";
+
     ctx.fillText(
       `${medal} ${p.name} — ${p.points} pts`,
       marginX,
       optY
     );
-    optY += 32;
+    optY += 46;
   });
 }
+
 
 function roundRect(ctx, x, y, w, h, r, fill, stroke) {
   if (typeof r === "number") {
