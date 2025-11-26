@@ -25,7 +25,6 @@ function buildLeaderboard(room) {
     });
 }
 
-
 // Helper: finish the game once (by max points OR round limit)
 function endGame(io, roomId, reason = "unknown") {
   const room = rooms.get(roomId);
@@ -53,9 +52,15 @@ function endGame(io, roomId, reason = "unknown") {
     clearInterval(room.timer);
     room.timer = null;
   }
+
   room.endAt = null;
   room.round = null;
   room.roundVotes = new Map();
+
+  // 🔄 Reset used questions for this room so a future game can start fresh
+  if (room.usedQuestionIds) {
+    delete room.usedQuestionIds;
+  }
 }
 
 export async function startRound(io, roomId, durationSec = 20) {
@@ -78,8 +83,21 @@ export async function startRound(io, roomId, durationSec = 20) {
   // We DO NOT trigger game_over here anymore.
   // Round limit is enforced AFTER the round finishes (so the last round still plays).
 
-  // ---------- FETCH QUESTION ----------
-  const q = await getRandomQuestionWithOptions();
+  // ======================================================
+  // 🔑 FETCH QUESTION WITH PER-ROOM "NO DUPES" LOGIC
+  // ======================================================
+  if (!room.usedQuestionIds) {
+    room.usedQuestionIds = new Set();
+  }
+
+  const excludeIds = Array.from(room.usedQuestionIds.values());
+
+  // This will avoid excludeIds until we've cycled through all actives
+  const q = await getRandomQuestionWithOptions(excludeIds);
+
+  // Remember we've used this question in this room
+  room.usedQuestionIds.add(q.id);
+
   room.round = {
     id: Date.now().toString(),
     roundNumber: room.roundNumber,
@@ -194,18 +212,16 @@ export async function startRound(io, roomId, durationSec = 20) {
       if (!player) continue;
 
       if (Number(optionId) === Number(winningOptionId)) {
+        const newScore = player.points + 1;
 
-      const newScore = player.points + 1;
+        // Track earliest round they achieved each score
+        if (!player.reachedAt) player.reachedAt = {};
+        if (!player.reachedAt[newScore]) {
+          player.reachedAt[newScore] = room.roundNumber;
+        }
 
-      // Track earliest round they achieved each score
-      if (!player.reachedAt) player.reachedAt = {};
-      if (!player.reachedAt[newScore]) {
-        player.reachedAt[newScore] = room.roundNumber;
+        player.points = newScore;
       }
-
-      player.points = newScore;
-    }
-
     }
 
     // ---------- EMIT ROUND RESULTS ----------
@@ -234,8 +250,7 @@ export async function startRound(io, roomId, durationSec = 20) {
 
     // 1) Max points condition
     const highestPoints = leaderboard.length ? leaderboard[0].points : 0;
-    const maxPoints =
-      Number(room.maxPoints || room.max_points || 5); // prefer room.maxPoints if set
+    const maxPoints = Number(room.maxPoints || room.max_points || 5);
 
     if (highestPoints >= maxPoints) {
       console.log(
