@@ -1,12 +1,34 @@
-// apps/host/src/scene/mainMenuScene.js
+// ============================================================
+// 🔊 AUDIO LOADING (runs once on app startup)
+// ============================================================
+import { AudioManager } from "../audio/audioManager.js";
+
+// 🌙 Main menu & gameplay music (loops forever)
+AudioManager.load("main", "/sounds/menu-gameplay.mp3", {
+  loop: true,
+  volume: 0.55,
+});
+
+// 🎭 Intro cutscene music (non-looping)
+AudioManager.load("intro", "/sounds/intro-cutscene.mp3", {
+  loop: false,
+  volume: 0.8,
+});
+
+// 🏆 Winner cutscene music (we keep non-looping here too)
+AudioManager.load("winner", "/sounds/winner-sting.mp3", {
+  loop: false,
+  volume: 0.9,
+});
+
+
+// ============================================================
+// 🏛️ MAIN MENU SCENE
+// ============================================================
 console.log("🔥 mainMenuScene.js LOADED (live)");
 
 import * as THREE from "three";
 import { createAvatar } from "./avatar.js";
-
-// 👇 we NO LONGER import playIntroCutscene or initScene here
-// import { playIntroCutscene } from "../cutscenes/introCutscene.js";
-// import { initScene } from "./scene.js";
 
 let scene, camera, renderer;
 let clock;
@@ -14,14 +36,14 @@ let animationId = null;
 let containerEl = null;
 let soloStarting = false;
 
-// Robots walking / hovering in hallway
+// Robots in hallway
 const robots = [];
 
 // Posters (SOLO, TITLE, MULTIPLAYER)
 const posters = [];
 let hoveredPoster = null;
 
-// Raycasting for clicking posters
+// Raycasting
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 
@@ -29,8 +51,10 @@ const mouse = new THREE.Vector2();
 let onMultiplayerClickCb = null;
 let onSoloClickCb = null;
 
-// ---------------------- POSTER HELPERS ----------------------
 
+// ============================================================
+// POSTER HELPERS
+// ============================================================
 function makePosterTexture({ title, subtitle, bgColor, accentColor }) {
   const canvas = document.createElement("canvas");
   canvas.width = 512;
@@ -56,8 +80,7 @@ function makePosterTexture({ title, subtitle, bgColor, accentColor }) {
   ctx.globalAlpha = 1;
 
   ctx.fillStyle = "#ffffff";
-  ctx.font =
-    "bold 68px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+  ctx.font = "bold 68px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.shadowColor = "rgba(0,0,0,0.7)";
@@ -67,8 +90,7 @@ function makePosterTexture({ title, subtitle, bgColor, accentColor }) {
   if (subtitle) {
     ctx.shadowBlur = 0;
     ctx.fillStyle = "#ffe9b3";
-    ctx.font =
-      "24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.font = "24px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
     ctx.fillText(subtitle, canvas.width / 2, canvas.height * 0.7);
   }
 
@@ -102,8 +124,10 @@ function createPoster(opts) {
   return mesh;
 }
 
-// ---------------------- ROBOT HELPERS -----------------------
 
+// ============================================================
+// ROBOT HELPERS
+// ============================================================
 function spawnRobot({ x, z, hover }) {
   const bot = createAvatar("BOT");
   bot.position.set(x, 1.6, z);
@@ -150,8 +174,10 @@ function createSparks() {
   return points;
 }
 
-// ---------------------- INIT SCENE -------------------------
 
+// ============================================================
+// INIT MAIN MENU SCENE  ⭐⭐ START THE MENU MUSIC HERE ⭐⭐
+// ============================================================
 export function initMainMenuScene(
   containerId = "table-app",
   { onMultiplayerClick, onSoloClick } = {}
@@ -159,9 +185,24 @@ export function initMainMenuScene(
   containerEl = document.getElementById(containerId);
   if (!containerEl) throw new Error(`Missing container #${containerId}`);
 
+  // ======================================================
+  // 🔊 AUTOPLAY FIX: Wait for first user interaction
+  // ======================================================
+  let firstInteraction = () => {
+    console.log("🔊 First interaction detected — starting menu music");
+    AudioManager.stopAll();
+    AudioManager.play("main");
+    window.removeEventListener("pointerdown", firstInteraction);
+  };
+  window.addEventListener("pointerdown", firstInteraction);
+
   onMultiplayerClickCb =
     typeof onMultiplayerClick === "function" ? onMultiplayerClick : null;
   onSoloClickCb = typeof onSoloClick === "function" ? onSoloClick : null;
+
+  // 🔊 STOP everything else & start menu music fresh
+  AudioManager.stopAll();
+  AudioManager.play("main");
 
   while (containerEl.firstChild) {
     containerEl.removeChild(containerEl.firstChild);
@@ -176,8 +217,6 @@ export function initMainMenuScene(
     antialias: true,
     powerPreference: "high-performance",
   });
-  console.log("Renderer created:", renderer.domElement);
-
   renderer.setPixelRatio(window.devicePixelRatio || 1);
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.domElement.style.width = "100vw";
@@ -197,6 +236,7 @@ export function initMainMenuScene(
   camera.position.set(0, 4, 12);
   camera.lookAt(0, 3, -4);
 
+  // Lighting
   const ambient = new THREE.AmbientLight(0xffffff, 0.55);
   scene.add(ambient);
 
@@ -212,6 +252,7 @@ export function initMainMenuScene(
   tealFill.position.set(10, 4, -1);
   scene.add(tealFill);
 
+  // Room geometry (floor, ceiling, walls)
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(40, 12),
     new THREE.MeshStandardMaterial({
@@ -277,6 +318,7 @@ export function initMainMenuScene(
   posterGlow.position.set(0, 6.4, -5.8);
   scene.add(posterGlow);
 
+  // Build posters
   const soloPoster = createPoster({
     type: "solo",
     title: "SOLO",
@@ -307,10 +349,9 @@ export function initMainMenuScene(
   multiPoster.position.set(7, 3.3, -5.9);
   scene.add(multiPoster);
 
-  posters.forEach((p) => {
-    p.rotation.x = -0.05;
-  });
+  posters.forEach((p) => (p.rotation.x = -0.05));
 
+  // Robots
   spawnRobot({ x: 0, z: -3, hover: true });
   spawnRobot({ x: -10, z: -1.5, hover: false });
   spawnRobot({ x: -5, z: -2.5, hover: false });
@@ -320,6 +361,7 @@ export function initMainMenuScene(
   const sparks = createSparks();
   sparks.userData.isSparks = true;
 
+  // Input
   window.addEventListener("resize", onWindowResize);
   renderer.domElement.addEventListener("pointermove", onPointerMove);
   renderer.domElement.addEventListener("click", onClickPoster);
@@ -327,13 +369,19 @@ export function initMainMenuScene(
   animate();
 }
 
-// ---------------------- TEARDOWN ----------------------------
 
+// ============================================================
+// TEARDOWN (stop music only when leaving menu)
+// ============================================================
 export function disposeMainMenuScene() {
   if (animationId !== null) {
     cancelAnimationFrame(animationId);
     animationId = null;
   }
+
+  // ⚠️ IMPORTANT: DO NOT STOP MUSIC HERE
+  // Music must continue into lobby and gameplay
+  // AudioManager.stopAll() happens in cutscenes or winner screen only.
 
   window.removeEventListener("resize", onWindowResize);
   if (renderer && renderer.domElement) {
@@ -341,7 +389,11 @@ export function disposeMainMenuScene() {
     renderer.domElement.removeEventListener("click", onClickPoster);
   }
 
-  if (containerEl && renderer && renderer.domElement.parentElement === containerEl) {
+  if (
+    containerEl &&
+    renderer &&
+    renderer.domElement.parentElement === containerEl
+  ) {
     containerEl.removeChild(renderer.domElement);
   }
 
@@ -354,8 +406,10 @@ export function disposeMainMenuScene() {
   soloStarting = false;
 }
 
-// ---------------------- EVENTS / INTERACTION ---------------
 
+// ============================================================
+// EVENTS / INTERACTION
+// ============================================================
 function onWindowResize() {
   if (!camera || !renderer) return;
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -374,9 +428,7 @@ function onPointerMove(event) {
   const intersects = raycaster.intersectObjects(posters, false);
 
   let newHover = null;
-  if (intersects.length > 0) {
-    newHover = intersects[0].object;
-  }
+  if (intersects.length > 0) newHover = intersects[0].object;
 
   if (hoveredPoster !== newHover) {
     if (hoveredPoster) {
@@ -412,13 +464,14 @@ function onClickPoster(event) {
   const action = obj.userData.action;
   console.log("✅ Poster clicked:", action, obj.userData);
 
-  // MULTIPLAYER
+  // 👉 MULTIPLAYER
   if (action === "multiplayer" && onMultiplayerClickCb) {
+    // Do NOT stop music here!
     onMultiplayerClickCb();
     return;
   }
 
-  // SOLO — just leave hallway & let solo.js handle cutscenes
+  // 👉 SOLO MODE
   if (action === "solo" && onSoloClickCb) {
     if (soloStarting) return;
     soloStarting = true;
@@ -432,8 +485,10 @@ function onClickPoster(event) {
   }
 }
 
-// ---------------------- ANIMATION LOOP ---------------------
 
+// ============================================================
+// ANIMATION LOOP
+// ============================================================
 function animate() {
   animationId = requestAnimationFrame(animate);
   if (!renderer || !scene || !camera || !clock) return;

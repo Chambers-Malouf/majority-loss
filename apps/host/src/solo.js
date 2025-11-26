@@ -1,6 +1,9 @@
 // apps/host/src/solo.js
 console.log("🧠 solo.js loaded — SOLO MODE vs 4 AI");
 
+// ⭐ AUDIO MANAGER
+import { AudioManager } from "./audio/audioManager.js";
+
 import {
   playIntroFromScene,
   playWinnerFromScene,
@@ -58,10 +61,8 @@ function setupSoloTable(playerName) {
 
   setMyPlayerId(playerId);
 
-  // place YOU using multiplayer logic
   setPlayersOnTable([{ id: playerId, name: playerName }]);
 
-  // Now place the AI manually using our semi-circle function
   placeSoloAI(["Chishiya", "Ann", "Yumeko", "L"]);
 }
 
@@ -81,29 +82,35 @@ export async function startSoloMode() {
     "You";
 
   localStorage.setItem("playerName", playerName);
-  localStorage.setItem("soloMode", "1"); // 👈 used by scene.js camera zoom
+  localStorage.setItem("soloMode", "1");
 
-  // Initialize scores
   soloScores.set(playerName, 0);
   for (const ai of AI_LIST) soloScores.set(ai.name, 0);
 
   console.log("🎮 SOLO MODE START — player:", playerName);
 
-  // 1. Build courtroom scene + camera
+  // 1. Build courtroom scene
   initScene("table-app");
 
-  // 2. Play intro cutscene once, using scene camera
+  // ⭐ AUDIO: Start intro music immediately
+  AudioManager.stopAll();
+  AudioManager.play("intro");
+
+  // 2. Play intro cutscene
   await new Promise((resolve) => {
     console.log("🎬 SOLO — playing intro cutscene from scene.js");
     playIntroFromScene(resolve);
   });
 
-  // 3. Place players and AI, show welcome banner
-  setupSoloTable(playerName);
+  // ⭐ AUDIO: Return to gameplay track
+  AudioManager.stop("intro");
+  AudioManager.play("main");
 
+  // 3. Set up players + AI
+  setupSoloTable(playerName);
   setCourtroomBanner("", `SOLO MODE — You vs 4 AI`, "");
 
-  // 4. Enter the round loop
+  // 4. Run round loop
   await runNextSoloRound(playerName);
 }
 
@@ -265,7 +272,7 @@ async function runNextSoloRound(playerName) {
   for (const v of aiVotesRaw) {
     if (!v) continue;
 
-    const exists = options.some((o) => Number(o.id) === Number(v.optionId));
+    const exists = options.some((o) => Number(o.id) === Number(v.optionoptionId));
     const id = exists ? v.optionId : options[0].id;
 
     addVote(id);
@@ -334,9 +341,18 @@ async function showSoloGameOver() {
   const leaderboard = buildLeaderboard();
   const winnerName = leaderboard[0]?.name || "Winner";
 
+  // ⭐ AUDIO: Stop main, play winner cutscene music
+  AudioManager.stopAll();
+  AudioManager.play("winner");
+
+  // Run winner cutscene
   await new Promise((resolve) => {
     playWinnerFromScene(winnerName, resolve);
   });
+
+  // ⭐ AUDIO: Fade back to main loop afterwards
+  AudioManager.stop("winner");
+  AudioManager.play("main");
 
   setChalkResultsView({
     roomId: "SOLO",
@@ -350,9 +366,7 @@ async function showSoloGameOver() {
 
   const lines = leaderboard.map(
     (p, i) =>
-      `${i === 0 ? "👑" : "•"} ${p.name}: ${p.points} point${
-        p.points === 1 ? "" : "s"
-      }`
+      `${i === 0 ? "👑" : "•"} ${p.name}: ${p.points} point${p.points === 1 ? "" : "s"}`
   );
 
   setCourtroomBanner(

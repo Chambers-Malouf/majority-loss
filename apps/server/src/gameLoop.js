@@ -7,12 +7,24 @@ const MAX_ROUNDS = 10; // hard cap: round limit
 // Helper: build sorted leaderboard from room.players
 function buildLeaderboard(room) {
   return Array.from(room.players.values())
-    .sort((a, b) => b.points - a.points)
     .map((p) => ({
       name: p.name,
       points: p.points,
-    }));
+      reachedAt: p.reachedAt || {},
+    }))
+    .sort((a, b) => {
+      // Higher points first
+      if (b.points !== a.points) return b.points - a.points;
+
+      // Tiebreaker: earliest round they reached that score
+      const score = a.points;
+      const aRound = a.reachedAt?.[score] ?? Infinity;
+      const bRound = b.reachedAt?.[score] ?? Infinity;
+
+      return aRound - bRound; // earlier wins
+    });
 }
+
 
 // Helper: finish the game once (by max points OR round limit)
 function endGame(io, roomId, reason = "unknown") {
@@ -182,8 +194,18 @@ export async function startRound(io, roomId, durationSec = 20) {
       if (!player) continue;
 
       if (Number(optionId) === Number(winningOptionId)) {
-        player.points += 1;
+
+      const newScore = player.points + 1;
+
+      // Track earliest round they achieved each score
+      if (!player.reachedAt) player.reachedAt = {};
+      if (!player.reachedAt[newScore]) {
+        player.reachedAt[newScore] = room.roundNumber;
       }
+
+      player.points = newScore;
+    }
+
     }
 
     // ---------- EMIT ROUND RESULTS ----------

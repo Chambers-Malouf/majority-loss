@@ -1,4 +1,5 @@
 // apps/host/src/table.js
+import { AudioManager } from "./audio/audioManager.js";
 import { initScene, setPlayersOnTable, updateReadyBadges } from "./scene/scene.js";
 import { initMainMenuScene, disposeMainMenuScene } from "./scene/menu.js";
 import { createSocket } from "./net/socket.js";
