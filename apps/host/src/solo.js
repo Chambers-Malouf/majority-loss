@@ -1,5 +1,6 @@
 // apps/host/src/solo.js
 console.log("🧠 solo.js loaded — SOLO MODE vs 4 AI");
+import { playIntroFromScene, playWinnerFromScene } from "./scene/scene.js";
 
 import {
   initScene,
@@ -86,7 +87,12 @@ export async function startSoloMode() {
 
   console.log("🎮 SOLO MODE START — player:", playerName);
 
-  initScene("table-app"); // load courtroom
+  await new Promise(resolve => {
+    playIntroFromScene(() => {
+        resolve();
+    });
+    });
+    initScene("table-app");
   setupSoloTable(playerName);
 
   // Welcome banner
@@ -330,7 +336,14 @@ async function showSoloGameOver() {
   soloRunning = false;
 
   const leaderboard = buildLeaderboard();
+  const winnerName = leaderboard[0]?.name || "Winner";
 
+  // 🎬 Play winner cutscene FIRST
+  await new Promise(resolve => {
+    playWinnerFromScene(winnerName, resolve);
+  });
+
+  // 🟦 Now show chalkboard final results after cutscene
   setChalkResultsView({
     roomId: "SOLO",
     roundNumber: soloRoundNumber,
@@ -356,3 +369,4 @@ async function showSoloGameOver() {
 
   await wait(6000);
 }
+

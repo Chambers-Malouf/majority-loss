@@ -4,6 +4,10 @@ console.log("📸 scene.js loaded (3D courtroom)");
 import * as THREE from "three";
 import { createAvatar } from "./avatar.js";
 import { myPlayerId } from "../state.js";
+import { playIntroCutscene } from "../cutscenes/introCutscene.js";
+import { playWinnerCutscene } from "../cutscenes/winnerCutscene.js";
+import { attachCutsceneCamera } from "../cutscenes/cutsceneCamera.js";
+
 
 let scene, camera, renderer;
 const avatars = new Map(); // playerId -> THREE.Group
@@ -35,6 +39,50 @@ const TOTAL_SEATS = 5;
 // Raycaster for chalkboard clicks
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
+
+/* ------------------------------------------------------------------
+   PUBLIC: PLAY INTRO + WINNER CUTSCENES SAFELY
+------------------------------------------------------------------- */
+
+// Solo or Multiplayer: BEFORE first question
+export function playIntroFromScene(onFinish = () => {}) {
+  if (!camera) {
+    console.warn("⚠️ No camera available for intro cutscene");
+    onFinish();
+    return;
+  }
+
+  // Disable chalkboard / head movement during cutscene
+  renderer.domElement.style.pointerEvents = "none";
+
+  console.log("🎬 Starting INTRO cutscene from scene.js");
+
+  playIntroCutscene(() => {
+    renderer.domElement.style.pointerEvents = "auto";
+    console.log("🎬 INTRO cutscene complete");
+    onFinish();
+  });
+}
+
+// End of game: winner animation
+export function playWinnerFromScene(winnerName, onFinish = () => {}) {
+  if (!camera) {
+    console.warn("⚠️ No camera available for winner cutscene");
+    onFinish();
+    return;
+  }
+
+  renderer.domElement.style.pointerEvents = "none";
+
+  console.log("🏆 Starting WINNER cutscene from scene.js");
+
+  playWinnerCutscene(winnerName, () => {
+    renderer.domElement.style.pointerEvents = "auto";
+    console.log("🏆 WINNER cutscene complete");
+    onFinish();
+  });
+}
+
 
 /* ------------------------------------------------------------------
    BADGE HELPERS
@@ -1303,6 +1351,9 @@ export function initScene(containerId = "table-app") {
   window.addEventListener("resize", onWindowResize);
   window.addEventListener("resize", updateOrientationOverlay);
   updateOrientationOverlay();
+
+  window.__majorityCamera = camera;
+  attachCutsceneCamera(camera);
 
   animate();
 }

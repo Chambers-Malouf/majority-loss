@@ -2,6 +2,7 @@
 import { initScene, setPlayersOnTable, updateReadyBadges } from "./scene/scene.js";
 import { initMainMenuScene, disposeMainMenuScene } from "./scene/menu.js";
 import { createSocket } from "./net/socket.js";
+import { playIntroFromScene, playWinnerFromScene } from "./scene/scene.js";
 import {
   renderLobbyOverlay,
   renderInRoomOverlay,
@@ -189,22 +190,28 @@ function onReadyClick() {
 function onStartGameClick() {
   if (!socket || !roomId) return;
 
-  console.log("🟢 Requesting start_game…");
+  console.log("🎬 Host clicked START GAME — playing intro cutscene");
 
-  currentRemaining = null;
-  myVoteOptionId = null;
+  // Cutscene disables input and runs the judge intro
+  playIntroFromScene(() => {
+    console.log("🎬 Intro cutscene finished — now requesting start_game…");
 
-  socket.emit("start_game", { roomId, duration: 20 }, (ack) => {
-    if (ack?.error) {
-      console.error("❌ start_game failed:", ack.error);
-      alert(`Start failed: ${ack.error}`);
-      return;
-    }
+    currentRemaining = null;
+    myVoteOptionId = null;
 
-    console.log("✅ start_game acknowledged by server");
-    gameStarted = true;
+    socket.emit("start_game", { roomId, duration: 20 }, (ack) => {
+      if (ack?.error) {
+        console.error("❌ start_game failed:", ack.error);
+        alert(`Start failed: ${ack.error}`);
+        return;
+      }
+
+      console.log("✅ start_game acknowledged by server");
+      gameStarted = true;
+    });
   });
 }
+
 
 function maybeAutoStart() {
   if (!isHost()) return;
@@ -311,12 +318,22 @@ function wireSocketEvents() {
   });
 
   socket.on("game_over", ({ leaderboard }) => {
-    console.log("📡 game_over:", leaderboard);
+  console.log("🏁 Server says GAME OVER:", leaderboard);
+
+  const winnerName = leaderboard?.[0]?.name || "Winner";
+
+  // Play cinematic first
+  playWinnerFromScene(winnerName, () => {
+    console.log("🏆 Winner cutscene finished — showing end screen");
+
     currentRound = null;
     currentRemaining = null;
     gameStarted = false;
+
     showGameOverOverlay(leaderboard);
   });
+});
+
 }
 
 document.addEventListener("DOMContentLoaded", () => {

@@ -2,11 +2,17 @@ console.log("🔥 mainMenuScene.js LOADED (live)");
 // apps/host/src/scene/mainMenuScene.js
 import * as THREE from "three";
 import { createAvatar } from "./avatar.js";
+import { playIntroCutscene } from "../cutscenes/introCutscene.js";
+import { initScene } from "./scene.js";
+
+
 
 let scene, camera, renderer;
 let clock;
 let animationId = null;
 let containerEl = null;
+let soloStarting = false;
+
 
 // Robots walking / hovering in hallway
 const robots = [];
@@ -421,6 +427,7 @@ function onClickPoster(event) {
 
   raycaster.setFromCamera(mouse, camera);
   const intersects = raycaster.intersectObjects(posters, false);
+
   if (!intersects.length) {
     console.log("❌ Clicked, but no poster hit");
     return;
@@ -430,17 +437,36 @@ function onClickPoster(event) {
   const action = obj.userData.action;
   console.log("✅ Poster clicked:", action, obj.userData);
 
+  // -----------------------
+  // MULTIPLAYER POSTER
+  // -----------------------
   if (action === "multiplayer" && onMultiplayerClickCb) {
     onMultiplayerClickCb();
-  } else if (action === "solo") {
-    // ⭐ NEW: call the solo callback instead of alert
-    if (onSoloClickCb) {
-      onSoloClickCb();
-    } else {
-      alert("Solo mode callback not wired yet.");
-    }
+    return;
   }
+
+  // -----------------------
+  // SOLO POSTER (play cutscene first)
+  // -----------------------
+  if (action === "solo" && onSoloClickCb) {
+  if (soloStarting) return;         // stop double-trigger
+  soloStarting = true;
+
+  console.log("🎬 SOLO POSTER CLICKED — initializing SOLO MODE");
+
+  renderer.domElement.removeEventListener("click", onClickPoster);
+  disposeMainMenuScene();
+
+  initScene("table-app");
+
+  playIntroCutscene(() => {
+    console.log("🎬 Intro done → starting solo mode");
+    onSoloClickCb();
+  });
 }
+
+}
+
 
 
 // ---------------------- ANIMATION LOOP ---------------------
