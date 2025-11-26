@@ -365,6 +365,27 @@ export function initMainMenuScene(
   window.addEventListener("resize", onWindowResize);
   renderer.domElement.addEventListener("pointermove", onPointerMove);
   renderer.domElement.addEventListener("click", onClickPoster);
+// --- MUSIC DISCLAIMER ---
+const disclaimer = document.createElement("div");
+disclaimer.textContent = "🎧 This game has music that plays when you click the screen. Adjust volume or use the mute button (top-right).";
+disclaimer.style.position = "fixed";
+disclaimer.style.bottom = "22px";
+disclaimer.style.left = "50%";
+disclaimer.style.transform = "translateX(-50%)";
+disclaimer.style.background = "rgba(0,0,0,0.6)";
+disclaimer.style.padding = "12px 20px";
+disclaimer.style.borderRadius = "12px";
+disclaimer.style.color = "white";
+disclaimer.style.fontSize = "18px";
+disclaimer.style.zIndex = "9999";
+disclaimer.style.fontFamily = "system-ui";
+document.body.appendChild(disclaimer);
+
+setTimeout(() => {
+  disclaimer.style.transition = "opacity 0.8s";
+  disclaimer.style.opacity = "0";
+  setTimeout(() => disclaimer.remove(), 800);
+}, 5500);
 
   animate();
 }

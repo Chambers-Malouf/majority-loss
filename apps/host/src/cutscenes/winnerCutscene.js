@@ -279,7 +279,7 @@ export async function playWinnerCutscene(winnerNames, onFinish = () => {}) {
     2
   );
 
-  await wait(5000);
+  await wait(15000);
 
   /* ---------- FADE OUT ---------- */
   fade.style.opacity = "1";

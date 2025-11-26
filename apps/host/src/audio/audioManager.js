@@ -1,6 +1,8 @@
 // apps/host/src/audio/audioManager.js
 console.log("🎧 Audio Manager Loaded");
 
+let globalMuted = false;
+
 export const AudioManager = {
   tracks: {},
 
@@ -9,12 +11,17 @@ export const AudioManager = {
     audio.loop = loop;
     audio.volume = volume;
     audio.preload = "auto";
+    audio.muted = globalMuted; // respect global mute state
     this.tracks[name] = audio;
   },
 
   play(name) {
     const a = this.tracks[name];
     if (!a) return;
+
+    // enforce mute state even if called mid-game
+    a.muted = globalMuted;
+
     try {
       a.currentTime = 0;
       a.play();
@@ -33,5 +40,20 @@ export const AudioManager = {
     for (const a of Object.values(this.tracks)) {
       a.pause();
     }
+  },
+
+  toggleMute() {
+    globalMuted = !globalMuted;
+
+    // Apply mute to all loaded tracks
+    for (const a of Object.values(this.tracks)) {
+      a.muted = globalMuted;
+    }
+
+    return globalMuted;
+  },
+
+  isMuted() {
+    return globalMuted;
   }
 };

@@ -31,6 +31,17 @@ let currentRound = null;
 let currentRemaining = null;
 let myVoteOptionId = null;
 
+// --- GLOBAL MUTE BUTTON ---
+document.addEventListener("DOMContentLoaded", () => {
+  const btn = document.getElementById("mute-btn");
+  if (!btn) return;
+
+  btn.addEventListener("click", () => {
+    const muted = AudioManager.toggleMute();
+    btn.textContent = muted ? "🔇" : "🔊";
+  });
+});
+
 // ---------------- INPUT HELPERS ----------------
 function getNameInput() {
   const input = document.getElementById("name-input");
