@@ -12,7 +12,6 @@ import {
   renderGameOverOverlay,
 } from "./ui/overlay.js";
 import { setMyPlayerId } from "./state.js";
-// ⭐ NEW: import solo mode entry point
 import { startSoloMode } from "./solo.js";
 
 let socket = null;
@@ -25,13 +24,12 @@ let allReady = false;
 let gameStarted = false;
 let cleanupLobby = null;
 
-
-// Round / voting state
+// Round state
 let currentRound = null;
 let currentRemaining = null;
 let myVoteOptionId = null;
 
-// --- GLOBAL MUTE BUTTON ---
+// --- MUTE BUTTON ---
 document.addEventListener("DOMContentLoaded", () => {
   const btn = document.getElementById("mute-btn");
   if (!btn) return;
@@ -65,7 +63,6 @@ function isHost() {
 function showLobbyOverlay() {
   localStorage.removeItem("inRoom");
   const savedName = localStorage.getItem("playerName") || "";
-  // ❗ store cleanup returned from renderLobbyOverlay → scene removes lobby tap
   cleanupLobby = renderLobbyOverlay({
     savedName,
     onCreateRoomClick,
@@ -130,7 +127,7 @@ function showGameOverOverlay(leaderboard) {
   });
 }
 
-// ---------------- ROOM / SOCKET LOGIC ---------
+// ---------------- ROOM ACTIONS -----------------
 function onCreateRoomClick() {
   const name = getNameInput();
   if (!name) return;
@@ -138,18 +135,13 @@ function onCreateRoomClick() {
   myName = name;
   localStorage.setItem("playerName", name);
 
-  console.log("🟢 Creating room…");
-
   socket.emit("host_create", (res) => {
-    if (!res || !res.roomId) {
-      console.error("❌ host_create failed:", res);
+    if (!res?.roomId) {
       alert("Failed to create room.");
       return;
     }
 
     roomId = res.roomId;
-    console.log("✅ Room created:", roomId, "gameId:", res.gameId);
-
     joinRoom(roomId, name);
   });
 }
@@ -170,19 +162,14 @@ function onJoinRoomClick() {
 }
 
 function joinRoom(code, name) {
-  console.log("🟢 Joining room:", code, "as", name);
-
   socket.emit("join_room", { roomId: code, name }, (ack) => {
     if (ack?.error) {
-      console.error("❌ join_room failed:", ack.error);
       alert(`Join failed: ${ack.error}`);
       return;
     }
 
     myId = ack.playerId;
-    setMyPlayerId(myId); // 🔑 tell state.js who "I" am on THIS device
-
-    // now we're in the game space
+    setMyPlayerId(myId);
     showInRoomOverlay();
   });
 }
@@ -190,53 +177,59 @@ function joinRoom(code, name) {
 function onReadyClick() {
   if (!socket || !roomId) return;
 
-  console.log("✅ Sending player_ready…");
   socket.emit("player_ready", { roomId }, (ack) => {
     if (ack?.error) {
-      console.error("❌ player_ready failed:", ack.error);
       alert(`Ready failed: ${ack.error}`);
     }
   });
 }
 
+// ------------------------------------------------------------
+//  START GAME LOGIC (INTRO ONCE, AUTO-START WHEN ALL READY)
+// ------------------------------------------------------------
 function onStartGameClick() {
   if (!socket || !roomId) return;
 
-  console.log("🎬 Host clicked START GAME — playing intro cutscene");
+  // Only host controls the actual start signal
+  if (!isHost()) {
+    console.log("⛔ Only the host can start the game.");
+    return;
+  }
 
-  // Cutscene disables input and runs the judge intro
-  playIntroFromScene(() => {
-    console.log("🎬 Intro cutscene finished — now requesting start_game…");
+  // First start: require all players to be ready
+  if (!gameStarted && !currentRound && !allReady) {
+    alert("Everyone must be READY before the game can start.");
+    return;
+  }
 
-    currentRemaining = null;
-    myVoteOptionId = null;
+  currentRemaining = null;
+  myVoteOptionId = null;
 
-    socket.emit("start_game", { roomId, duration: 20 }, (ack) => {
-      if (ack?.error) {
-        console.error("❌ start_game failed:", ack.error);
-        alert(`Start failed: ${ack.error}`);
-        return;
-      }
-
-      console.log("✅ start_game acknowledged by server");
-      gameStarted = true;
-    });
+  console.log("🎬 Emitting start_game to server");
+  socket.emit("start_game", { roomId, duration: 20 }, (ack) => {
+    if (ack?.error) {
+      console.error("❌ start_game failed:", ack.error);
+      alert(`Start failed: ${ack.error}`);
+      return;
+    }
+    console.log("✅ start_game acknowledged:", ack);
+    // We deliberately do NOT set gameStarted here.
+    // We flip gameStarted to true only when we actually receive round_question.
   });
 }
 
-
+// Auto-start when everyone is ready in the lobby
 function maybeAutoStart() {
   if (!isHost()) return;
   if (!allReady) return;
-  if (gameStarted) return;
+  if (gameStarted || currentRound) return;
 
-  console.log("🎬 All players ready and I'm the host. Auto-starting game.");
+  console.log("🎬 All players ready — auto-starting game");
   onStartGameClick();
 }
 
 function handleOptionClick(optionId) {
-  if (!socket || !roomId || !currentRound) return;
-  console.log("🟢 Voting option:", optionId);
+  if (!currentRound || !socket || !roomId) return;
 
   socket.emit(
     "vote",
@@ -246,23 +239,21 @@ function handleOptionClick(optionId) {
       optionId,
     },
     (ack) => {
-      if (ack?.error) {
+      if (!ack?.error) {
+        myVoteOptionId = optionId;
+        showQuestionOverlay();
+      } else {
         console.error("❌ vote failed:", ack.error);
         alert(`Vote failed: ${ack.error}`);
-        return;
       }
-      console.log("✅ vote accepted");
-      myVoteOptionId = optionId;
-      showQuestionOverlay();
     }
   );
 }
 
-// ---------------- SOCKET EVENTS ---------------
+// ---------------- SOCKET EVENTS -----------------
 function wireSocketEvents() {
+  // Room sync
   socket.on("room_state", (state) => {
-    console.log("📡 room_state:", state);
-
     if (state.roomId) roomId = state.roomId;
     players = state.players || [];
 
@@ -278,15 +269,13 @@ function wireSocketEvents() {
       showInRoomOverlay();
     }
 
-    // 🔑 scene decides who "me" is by reading state.js (myPlayerId)
     setPlayersOnTable(players);
     updateReadyBadges(readyById);
   });
 
-  socket.on("ready_state", ({ ready = {}, allReady: allR = false } = {}) => {
-    console.log("📡 ready_state:", ready, "allReady:", allR);
+  socket.on("ready_state", ({ ready = {}, allReady: AR = false } = {}) => {
     readyById = ready;
-    allReady = !!allR;
+    allReady = AR;
 
     if (!gameStarted || !currentRound) {
       showInRoomOverlay();
@@ -297,7 +286,6 @@ function wireSocketEvents() {
   });
 
   socket.on("round_question", (payload) => {
-    console.log("📡 round_question:", payload);
     currentRound = {
       roundId: payload.roundId,
       roundNumber: payload.roundNumber,
@@ -306,47 +294,53 @@ function wireSocketEvents() {
     };
     currentRemaining = null;
     myVoteOptionId = null;
+    gameStarted = true;
 
     showQuestionOverlay();
   });
 
   socket.on("round_tick", ({ remaining }) => {
     currentRemaining = remaining;
-    if (currentRound) {
-      showQuestionOverlay();
-    }
-  });
-
-  socket.on("vote_status", (payload) => {
-    console.log("📡 vote_status:", payload);
+    showQuestionOverlay();
   });
 
   socket.on("round_results", (results) => {
-    console.log("📡 round_results:", results);
     currentRemaining = null;
     myVoteOptionId = null;
-
     showResultsOverlay(results);
   });
 
+  // Multiplayer game-over → winner cutscene
   socket.on("game_over", ({ leaderboard }) => {
-  console.log("🏁 Server says GAME OVER:", leaderboard);
-    const winners = leaderboard.filter(p => 
-    p.points === leaderboard[0].points
-  ).map(p => p.name);
+    const winners = leaderboard
+      .filter((p) => p.points === leaderboard[0].points)
+      .map((p) => p.name);
 
-  playWinnerFromScene(winners);
-});
+    playWinnerFromScene(winners);
+  });
 
+  // --------------------------------------------------------
+  // INTRO CUTSCENE FOR EVERYONE, FIRST ROUND AFTER INTRO
+  // --------------------------------------------------------
+  socket.on("playIntroCutscene", () => {
+    console.log("📣 Server: PLAY INTRO CUTSCENE");
+
+    playIntroFromScene(() => {
+      console.log("🎬 Intro cutscene finished on this client");
+
+      // Only the host tells the server "intro is done".
+      if (isHost() && !gameStarted && !currentRound) {
+        console.log("🎬 Host emitting intro_done to start Round 1");
+        socket.emit("intro_done", { roomId });
+      }
+    });
+  });
 }
 
+// ---------------- MAIN MENU INIT -----------------
 document.addEventListener("DOMContentLoaded", () => {
-  console.log("MAIN MENU INITIALIZING…");
-
   initMainMenuScene("table-app", {
     onMultiplayerClick: () => {
-      console.log("MULTIPLAYER POSTER CLICKED");
-
       disposeMainMenuScene();
       initScene("table-app");
 
@@ -355,10 +349,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
       showLobbyOverlay();
     },
-    onSoloClick: () => {
-      console.log("SOLO POSTER CLICKED — from table.js");
-      startSoloMode();
-    },
+    onSoloClick: () => startSoloMode(),
   });
 });
-

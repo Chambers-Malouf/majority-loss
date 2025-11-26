@@ -1,6 +1,7 @@
+// apps/server/src/index.js
 import dotenv from "dotenv";
 dotenv.config();
-// apps/server/src/index.js
+
 // ====================================================
 // ================ IMPORTS & CONFIG ==================
 // ====================================================
@@ -22,6 +23,7 @@ import { startRound } from "./gameLoop.js";
 if (typeof fetch === "undefined") {
   global.fetch = (await import("node-fetch")).default;
 }
+
 const app = express();
 const PORT = process.env.PORT || 8080;
 const CORS_ORIGIN = (process.env.CORS_ORIGIN || "*")
@@ -232,25 +234,60 @@ io.on("connection", (socket) => {
   });
 
   // ---------- START GAME ----------
-    socket.on("start_game", ({ roomId, duration } = {}, ack) => {
-      const room = rooms.get(roomId);
-      if (!room) return ack?.({ error: "ROOM_NOT_FOUND" });
-      if (!room.players.has(socket.id)) return ack?.({ error: "NOT_IN_ROOM" });
+  socket.on("start_game", ({ roomId, duration } = {}, ack) => {
+    const room = rooms.get(roomId);
+    if (!room) return ack?.({ error: "ROOM_NOT_FOUND" });
+    if (!room.players.has(socket.id)) return ack?.({ error: "NOT_IN_ROOM" });
 
-      // 🟢 Reset previous round state
-      room.roundVotes = new Map();
-      room.round = null;
+    // Reset round state
+    room.roundVotes = new Map();
+    room.round = null;
 
-      startRound(io, roomId, duration || 10)
-        .then(() => {
-          room.ready = new Map();
-          ack?.({ ok: true });
-        })
-        .catch((err) => {
-          console.error("❌ start_game failed:", err);
-          ack?.({ error: "START_FAILED" });
-        });
-    });
+    // FIRST EVER START: only play intro
+    if (!room.hasPlayedIntro) {
+      room.hasPlayedIntro = true;
+      room.firstRoundDuration = Number(duration) || 20;
+
+      console.log("🎬 First start_game for room", roomId, "→ sending intro");
+      io.to(roomId).emit("playIntroCutscene");
+
+      // Acknowledge that intro is playing; round starts after intro_done
+      ack?.({ ok: true, intro: true });
+      return;
+    }
+
+    // Subsequent rounds: start immediately (no intro)
+    startRound(io, roomId, Number(duration) || 20)
+      .then(() => {
+        room.ready = new Map();
+        ack?.({ ok: true });
+      })
+      .catch((err) => {
+        console.error("❌ start_game failed:", err);
+        ack?.({ error: "START_FAILED" });
+      });
+  });
+
+  // ---------- INTRO DONE (HOST AFTER CUTSCENE) ----------
+  socket.on("intro_done", ({ roomId } = {}) => {
+    const room = rooms.get(roomId);
+    if (!room) return;
+    if (!room.players.has(socket.id)) return;      // must be in the room
+    if (!room.hasPlayedIntro) return;             // intro was never triggered
+    if (room.round) return;                        // round already running
+    if (room.gameOver) return;                     // game already finished
+
+    const duration = Number(room.firstRoundDuration) || 20;
+
+    console.log("🎬 intro_done from", socket.id, "→ starting first round for", roomId);
+    startRound(io, roomId, duration)
+      .then(() => {
+        room.ready = new Map();
+      })
+      .catch((err) => {
+        console.error("❌ intro_done → startRound failed:", err);
+      });
+  });
 
   // ---------- JOIN ROOM ----------
   socket.on("join_room", async ({ roomId, name }, ack) => {
@@ -267,14 +304,12 @@ io.on("connection", (socket) => {
         mission: null,
       });
 
-      // Make sure ready map exists and mark this player as NOT READY initially
       if (!room.ready) room.ready = new Map();
       room.ready.set(socket.id, false);
 
       socket.join(roomId);
       broadcastRoomState(io, roomId);
 
-      // Send current ready state to everyone
       const readyObj = {};
       for (const [pid, val] of room.ready.entries()) {
         readyObj[pid] = !!val;
@@ -316,7 +351,7 @@ io.on("connection", (socket) => {
   });
 
   // ---------- VOTE ----------
-    socket.on("vote", ({ roomId, roundId, optionId }, ack) => {
+  socket.on("vote", ({ roomId, roundId, optionId }, ack) => {
     const room = rooms.get(roomId);
     if (!room) return ack?.({ error: "ROOM_NOT_FOUND" });
 
@@ -342,7 +377,7 @@ io.on("connection", (socket) => {
       const p = Array.from(room.players.values()).find(
         (pl) => pl.playerGameId === pgId
       );
-      if (p) voted[p.id] = true; // p.id is socket.id
+      if (p) voted[p.id] = true;
     }
     io.to(roomId).emit("vote_status", { voted });
 
@@ -354,7 +389,6 @@ io.on("connection", (socket) => {
       optionId,
     });
   });
-
 
   // ---------- DISCONNECT ----------
   socket.on("disconnect", () => {
@@ -375,7 +409,6 @@ io.on("connection", (socket) => {
         } else {
           broadcastRoomState(io, roomId);
 
-          // Update ready_state for remaining players
           const readyObj = {};
           for (const [pid, val] of room.ready.entries()) {
             readyObj[pid] = !!val;
@@ -399,7 +432,6 @@ function computeAllReady(room) {
   if (!room.ready) return false;
   return playerIds.every((id) => room.ready.get(id) === true);
 }
-
 
 // ===================================================
 // ================= SERVER STARTUP ==================
