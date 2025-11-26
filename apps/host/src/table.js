@@ -10,6 +10,8 @@ import {
   renderGameOverOverlay,
 } from "./ui/overlay.js";
 import { setMyPlayerId } from "./state.js";
+// ⭐ NEW: import solo mode entry point
+import { startSoloMode } from "./solo.js";
 
 let socket = null;
 let roomId = null;
@@ -20,6 +22,7 @@ let readyById = {};
 let allReady = false;
 let gameStarted = false;
 let cleanupLobby = null;
+
 
 // Round / voting state
 let currentRound = null;
@@ -331,5 +334,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
       showLobbyOverlay();
     },
+    onSoloClick: () => {
+      console.log("SOLO POSTER CLICKED");
+      disposeMainMenuScene();
+      startSoloMode();
+    },
   });
 });
+

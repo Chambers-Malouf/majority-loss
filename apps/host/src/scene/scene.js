@@ -10,6 +10,9 @@ const avatars = new Map(); // playerId -> THREE.Group
 const readyBadges = new Map(); // playerId -> { sprite, state }
 const clock = new THREE.Clock();
 
+// Speech bubbles for AI in solo mode: aiName -> { sprite }
+const speechBubbles = new Map();
+
 // Look state (per device, only applied to my avatar)
 let pointerDown = false;
 let lastPointerX = 0;
@@ -26,16 +29,8 @@ let loggedCameraAttached = false;
 // Landscape overlay
 const ORIENTATION_OVERLAY_ID = "orientation-overlay";
 
-// Fixed 5-seat layout (you + 4 others)
+// Fixed max seats at the well (you + 4 others)
 const TOTAL_SEATS = 5;
-const SEAT_ANGLES = (() => {
-  const start = -Math.PI * 0.35; // left
-  const end = Math.PI * 0.35; // right
-  const step = (end - start) / (TOTAL_SEATS - 1);
-  const arr = [];
-  for (let i = 0; i < TOTAL_SEATS; i++) arr.push(start + step * i);
-  return arr;
-})();
 
 // Raycaster for chalkboard clicks
 const raycaster = new THREE.Raycaster();
@@ -97,6 +92,102 @@ function createReadySprite(state = "not-ready") {
   sprite.position.set(0, 2.1, 0);
   sprite.userData.state = state;
   return sprite;
+}
+
+/* ------------------------------------------------------------------
+   SPEECH BUBBLE HELPERS (SOLO AI)
+------------------------------------------------------------------- */
+
+function makeSpeechBubbleTexture(text) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 256;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  // Background
+  ctx.fillStyle = "rgba(15,23,42,0.92)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Rounded border
+  ctx.strokeStyle = "#fefae0";
+  ctx.lineWidth = 8;
+  const r = 28;
+  const x = 12;
+  const y = 12;
+  const w = canvas.width - 24;
+  const h = canvas.height - 24;
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+  ctx.stroke();
+
+  // Text
+  ctx.fillStyle = "#f9fafb";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+
+  const marginX = 32;
+  const marginY = 26;
+  const maxWidth = w - marginX * 2;
+  const maxHeight = h - marginY * 2;
+
+  let fontSize = 32;
+  const minFont = 16;
+  const lineHeightMult = 1.25;
+  let lines = [];
+
+  function wrapWithSize(size) {
+    ctx.font = `bold ${size}px "Marker Felt", "Chalkboard", system-ui`;
+    const words = (text || "…").split(/\s+/);
+    const wrapped = [];
+    let line = "";
+    for (const word of words) {
+      const test = line ? line + " " + word : word;
+      if (ctx.measureText(test).width > maxWidth && line) {
+        wrapped.push(line);
+        line = word;
+      } else {
+        line = test;
+      }
+    }
+    if (line) wrapped.push(line);
+    return wrapped;
+  }
+
+  while (fontSize >= minFont) {
+    lines = wrapWithSize(fontSize);
+    const totalH = lines.length * (fontSize * lineHeightMult);
+    const widthOK = lines.every(
+      (ln) => ctx.measureText(ln).width <= maxWidth
+    );
+    const heightOK = totalH <= maxHeight;
+    if (widthOK && heightOK) break;
+    fontSize -= 2;
+  }
+
+  ctx.font = `bold ${fontSize}px "Marker Felt", "Chalkboard", system-ui`;
+  const totalH = lines.length * (fontSize * lineHeightMult);
+  let ty = y + (h - totalH) / 2;
+  const tx = x + marginX;
+
+  for (const ln of lines) {
+    ctx.fillText(ln, tx, ty);
+    ty += fontSize * lineHeightMult;
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
 }
 
 /* ------------------------------------------------------------------
@@ -163,7 +254,6 @@ function onPointerUp(e) {
   if (!pointerDown) return;
   pointerDown = false;
 
-  // If it was basically a tap (not a drag), treat as chalkboard click
   const TAP_THRESHOLD_SQ = 12 * 12; // ~12px
   if (dragDistanceSq <= TAP_THRESHOLD_SQ) {
     handleChalkClick(e);
@@ -171,7 +261,7 @@ function onPointerUp(e) {
 }
 
 /* ------------------------------------------------------------------
-   CHALKBOARD BANNERS (left / center / right) — canvas-based text
+   CHALKBOARD BANNERS (left / center / right)
 ------------------------------------------------------------------- */
 
 const bannerMeshes = { left: null, center: null, right: null };
@@ -182,8 +272,8 @@ let bannerState = {
   right: "",
 };
 
-// Chalk state for question / results
-let chalkMode = "idle"; // "idle" | "question" | "results"
+// Chalk state for question / results / lobby
+let chalkMode = "idle"; // "idle" | "question" | "results" | "lobby"
 let chalkState = {
   roomId: "------",
   roundNumber: 1,
@@ -205,14 +295,12 @@ function createBannerTexture(initialText = "") {
   const ctx = canvas.getContext("2d");
   if (!ctx) return { canvas, ctx: null };
 
-  // Chalkboard background
   const grd = ctx.createLinearGradient(0, 0, 0, canvas.height);
   grd.addColorStop(0, "#1f3a2b");
   grd.addColorStop(1, "#163024");
   ctx.fillStyle = grd;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // Subtle border
   ctx.strokeStyle = "#fefae0";
   ctx.lineWidth = 16;
   ctx.strokeRect(24, 24, canvas.width - 48, canvas.height - 48);
@@ -225,14 +313,11 @@ function createBannerTexture(initialText = "") {
   return { canvas, ctx, tex };
 }
 
-// Simple generic chalk text (used for center / non-question states)
-// =====================================================
-// AUTO-SCALING CHALKBOARD TEXT (banner / question / results)
-// =====================================================
+// Auto-scaling generic chalk text
 function drawBannerText(ctx, canvas, text) {
   if (!text) return;
 
-  const marginX = canvas.width * 0.10;
+  const marginX = canvas.width * 0.1;
   const marginY = canvas.height * 0.12;
   const maxWidth = canvas.width - marginX * 2;
   const maxHeight = canvas.height - marginY * 2;
@@ -241,18 +326,12 @@ function drawBannerText(ctx, canvas, text) {
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
 
-  // -----------------------------
-  // 1. Split into raw paragraphs
-  // -----------------------------
   const paragraphs = text.split(/\n/);
 
-  // -----------------------------
-  // 2. Try decreasing font sizes until it fits
-  // -----------------------------
-  let fontSize = 70;      // starting size
+  let fontSize = 70;
   let lines = [];
-  let lineHeight = 1.22;  // multiplier
-  const minFont = 18;     // lowest allowed
+  const lineHeightMult = 1.22;
+  const minFont = 18;
 
   function wrapLines(size) {
     ctx.font = `bold ${size}px "Marker Felt", "Chalkboard", system-ui`;
@@ -261,11 +340,9 @@ function drawBannerText(ctx, canvas, text) {
     for (const para of paragraphs) {
       const words = para.trim().split(/\s+/);
       let line = "";
-
       for (const w of words) {
         const test = line ? line + " " + w : w;
         const width = ctx.measureText(test).width;
-
         if (width > maxWidth && line) {
           wrapped.push(line);
           line = w;
@@ -280,36 +357,27 @@ function drawBannerText(ctx, canvas, text) {
 
   while (fontSize >= minFont) {
     lines = wrapLines(fontSize);
-    const totalHeight = lines.length * (fontSize * lineHeight);
-
-    // If both width + height OK → done
-    const widthOK = lines.every(line => ctx.measureText(line).width <= maxWidth);
+    const totalHeight = lines.length * (fontSize * lineHeightMult);
+    const widthOK = lines.every(
+      (line) => ctx.measureText(line).width <= maxWidth
+    );
     const heightOK = totalHeight <= maxHeight;
-
     if (widthOK && heightOK) break;
-
-    fontSize -= 2; // shrink and retry
+    fontSize -= 2;
   }
 
-  // -----------------------------
-  // Center vertically
-  // -----------------------------
-  const totalHeight = lines.length * (fontSize * lineHeight);
+  const totalHeight = lines.length * (fontSize * lineHeightMult);
   let y = (canvas.height - totalHeight) / 2;
 
-  // -----------------------------
-  // Render lines
-  // -----------------------------
   ctx.font = `bold ${fontSize}px "Marker Felt", "Chalkboard", system-ui`;
-
   for (const line of lines) {
     ctx.fillText(line, canvas.width / 2, y);
-    y += fontSize * lineHeight;
+    y += fontSize * lineHeightMult;
   }
 }
 
+/* ---------------- QUESTION / RESULTS DRAW ---------------- */
 
-// Draw question + options as boxes on left/right boards
 function drawQuestionBoard(ctx, canvas) {
   const {
     roomId,
@@ -320,14 +388,12 @@ function drawQuestionBoard(ctx, canvas) {
     myVoteOptionId,
   } = chalkState;
 
-  // Background
   const grd = ctx.createLinearGradient(0, 0, 0, canvas.height);
   grd.addColorStop(0, "#1f3a2b");
   grd.addColorStop(1, "#163024");
   ctx.fillStyle = grd;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // Border
   ctx.strokeStyle = "#fefae0";
   ctx.lineWidth = 16;
   ctx.strokeRect(24, 24, canvas.width - 48, canvas.height - 48);
@@ -335,7 +401,7 @@ function drawQuestionBoard(ctx, canvas) {
   const marginX = canvas.width * 0.14;
   const headerY = canvas.height * 0.09;
 
-  // Header: room + round + timer
+  // Header
   ctx.fillStyle = "#fefae0";
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
@@ -347,14 +413,10 @@ function drawQuestionBoard(ctx, canvas) {
   if (typeof remaining === "number") {
     ctx.textAlign = "right";
     ctx.font = `bold 34px "Marker Felt", "Chalkboard", system-ui`;
-    ctx.fillText(
-      `${remaining}s left`,
-      canvas.width - marginX,
-      headerY + 10
-    );
+    ctx.fillText(`${remaining}s left`, canvas.width - marginX, headerY + 10);
   }
 
-  // Question text centered under header
+  // Question text
   const questionTopY = headerY + 110;
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
@@ -362,7 +424,6 @@ function drawQuestionBoard(ctx, canvas) {
   let qFont = 40;
   ctx.font = `bold ${qFont}px "Marker Felt", "Chalkboard", system-ui`;
 
-  // simple wrap for question
   const qLines = [];
   const qWords = (questionText || "…").split(/\s+/);
   let qLine = "";
@@ -377,12 +438,11 @@ function drawQuestionBoard(ctx, canvas) {
   }
   if (qLine) qLines.push(qLine);
 
-  const qTotalH = qLines.length * (qFont * 1.2);
   let qY = questionTopY;
-  for (const l of qLines) {
+  qLines.forEach((l) => {
     ctx.fillText(l, canvas.width / 2, qY);
     qY += qFont * 1.2;
-  }
+  });
 
   // Helper text
   ctx.font = `italic 28px "Marker Felt", "Chalkboard", system-ui`;
@@ -392,7 +452,7 @@ function drawQuestionBoard(ctx, canvas) {
     qY + 10
   );
 
-  // Options as boxes
+  // Options
   const startY = qY + 70;
   const boxWidth = canvas.width * 0.76;
   const boxHeight = 90;
@@ -406,19 +466,15 @@ function drawQuestionBoard(ctx, canvas) {
   options.forEach((opt, idx) => {
     const x = (canvas.width - boxWidth) / 2;
     const y = startY + idx * (boxHeight + gap);
-
     const isSelected = myVoteOptionId === opt.id;
 
-    // Box bg
     ctx.fillStyle = isSelected ? "#325f4a" : "#274131";
     roundRect(ctx, x, y, boxWidth, boxHeight, 18, true, false);
 
-    // Box outline
     ctx.strokeStyle = "#fefae0";
     ctx.lineWidth = 4;
     roundRect(ctx, x, y, boxWidth, boxHeight, 18, false, true);
 
-    // Option text (wrap inside box)
     ctx.fillStyle = "#fefae0";
     const innerMarginX = 22;
     const innerMaxWidth = boxWidth - innerMarginX * 2;
@@ -449,7 +505,6 @@ function drawQuestionBoard(ctx, canvas) {
       textY += oFont * 1.2;
     });
 
-    // Chalk circle if selected
     if (isSelected) {
       ctx.strokeStyle = "#fefae0";
       ctx.lineWidth = 6;
@@ -470,7 +525,6 @@ function drawQuestionBoard(ctx, canvas) {
   });
 }
 
-// Draw results: options + counts + scoreboard in one board
 function drawResultsBoard(ctx, canvas) {
   const {
     roomId,
@@ -482,7 +536,6 @@ function drawResultsBoard(ctx, canvas) {
     leaderboard,
   } = chalkState;
 
-  // Background
   const grd = ctx.createLinearGradient(0, 0, 0, canvas.height);
   grd.addColorStop(0, "#1f3a2b");
   grd.addColorStop(1, "#163024");
@@ -495,16 +548,18 @@ function drawResultsBoard(ctx, canvas) {
 
   const marginX = canvas.width * 0.12;
 
-  // Header
   ctx.fillStyle = "#fefae0";
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
   ctx.font = `bold 40px "Marker Felt", "Chalkboard", system-ui`;
   ctx.fillText(`Room ${roomId}`, marginX, canvas.height * 0.08);
   ctx.font = `bold 34px "Marker Felt", "Chalkboard", system-ui`;
-  ctx.fillText(`Round ${roundNumber} — Results`, marginX, canvas.height * 0.08 + 46);
+  ctx.fillText(
+    `Round ${roundNumber} — Results`,
+    marginX,
+    canvas.height * 0.08 + 46
+  );
 
-  // Question
   ctx.textAlign = "center";
   ctx.font = `bold 34px "Marker Felt", "Chalkboard", system-ui`;
   const qY = canvas.height * 0.22;
@@ -529,10 +584,10 @@ function drawResultsBoard(ctx, canvas) {
     curY += 38;
   });
 
-  // Options + counts
   ctx.textAlign = "left";
   ctx.font = `bold 30px "Marker Felt", "Chalkboard", system-ui`;
   let optY = curY + 20;
+
   options.forEach((opt) => {
     const c = counts.find(
       (entry) => Number(entry.optionId) === Number(opt.id)
@@ -553,7 +608,6 @@ function drawResultsBoard(ctx, canvas) {
     optY += 34;
   });
 
-  // Scoreboard
   ctx.font = `bold 30px "Marker Felt", "Chalkboard", system-ui`;
   optY += 22;
   ctx.fillText("Scoreboard:", marginX, optY);
@@ -604,7 +658,7 @@ function createBannerMesh(key, x) {
   });
   const mesh = new THREE.Mesh(geom, mat);
   mesh.position.set(x, 6.8, 14.7);
-  mesh.rotation.y = Math.PI; // face the room
+  mesh.rotation.y = Math.PI;
   mesh.castShadow = true;
   mesh.receiveShadow = false;
   scene.add(mesh);
@@ -616,19 +670,17 @@ function updateBanner(key) {
   if (!info || !info.ctx) return;
   const { ctx, canvas, tex } = info;
 
-  // Left/right boards are special — they render question/results when active
   if (key === "left" || key === "right") {
     if (chalkMode === "question") {
       drawQuestionBoard(ctx, canvas);
     } else if (chalkMode === "results") {
       drawResultsBoard(ctx, canvas);
     } else {
-      // Idle / lobby / game-over: generic text
       const grd = ctx.createLinearGradient(0, 0, 0, canvas.height);
       grd.addColorStop(0, "#1f3a2b");
       grd.addColorStop(1, "#163024");
       ctx.fillStyle = grd;
-      ctx.fillRect(0, 0, canvas.height, canvas.height);
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       ctx.strokeStyle = "#fefae0";
       ctx.lineWidth = 16;
@@ -637,7 +689,6 @@ function updateBanner(key) {
       drawBannerText(ctx, canvas, bannerState[key]);
     }
   } else {
-    // Center banner is always generic static-style
     const grd = ctx.createLinearGradient(0, 0, 0, canvas.height);
     grd.addColorStop(0, "#1f3a2b");
     grd.addColorStop(1, "#163024");
@@ -654,10 +705,10 @@ function updateBanner(key) {
   tex.needsUpdate = true;
 }
 
-/**
- * Public API so UI/overlay can update the chalkboards.
- * You can pass null to leave one side unchanged.
- */
+/* ------------------------------------------------------------------
+   PUBLIC API: BANNERS / CHALK VIEW
+------------------------------------------------------------------- */
+
 export function setCourtroomBanner(left, center, right) {
   if (typeof left === "string") bannerState.left = left;
   if (typeof center === "string") bannerState.center = center;
@@ -668,10 +719,6 @@ export function setCourtroomBanner(left, center, right) {
   if (bannerTextures.right) updateBanner("right");
 }
 
-/**
- * Called from overlay during QUESTION phase.
- * Sets chalk mode + options + click callback.
- */
 export function setChalkQuestionView({
   roomId,
   roundNumber,
@@ -688,16 +735,14 @@ export function setChalkQuestionView({
   chalkState.options = options || [];
   chalkState.remaining = remaining;
   chalkState.myVoteOptionId = myVoteOptionId ?? null;
-  chalkState.onOptionClick = typeof onOptionClick === "function" ? onOptionClick : null;
+  chalkState.onOptionClick =
+    typeof onOptionClick === "function" ? onOptionClick : null;
   chalkState.optionBoxes = [];
 
   if (bannerTextures.left) updateBanner("left");
   if (bannerTextures.right) updateBanner("right");
 }
 
-/**
- * Called from overlay during RESULTS phase.
- */
 export function setChalkResultsView({
   roomId,
   roundNumber,
@@ -721,14 +766,14 @@ export function setChalkResultsView({
 }
 
 /* ------------------------------------------------------------------
-   HANDLE CHALKBOARD CLICK → maps to option + calls onOptionClick
+   HANDLE CHALKBOARD CLICK → option selection
 ------------------------------------------------------------------- */
 
 function handleChalkClick(e) {
   if (!renderer || !camera || !scene) return;
   if (chalkMode !== "question") return;
 
-  const { options, optionBoxes, onOptionClick, myVoteOptionId } = chalkState;
+  const { options, optionBoxes, onOptionClick } = chalkState;
   if (!options || options.length === 0) return;
   if (!onOptionClick) return;
 
@@ -748,7 +793,6 @@ function handleChalkClick(e) {
   if (!hits.length) return;
   const hit = hits[0];
 
-  // Map UV to canvas coordinates
   const texInfo = bannerTextures.left || bannerTextures.right;
   if (!texInfo) return;
   const { canvas } = texInfo;
@@ -768,8 +812,9 @@ function handleChalkClick(e) {
   updateBanner("left");
   updateBanner("right");
 }
+
 /* ------------------------------------------------------------------
-   LOBBY CHALKBOARD MODE — type name + room code directly on boards
+   LOBBY CHALKBOARD INPUT (name + room code)
 ------------------------------------------------------------------- */
 
 export function setChalkLobbyView({
@@ -780,20 +825,14 @@ export function setChalkLobbyView({
 }) {
   chalkMode = "lobby";
 
-  // Draw left board with live-updating input fields
   function updateLobbyBoards() {
-    // LEFT BOARD = ROOM CODE
     bannerState.left =
       `Enter Room Code:\n` +
       `${(codeInput.value || "------").toUpperCase()}\n\n` +
-        `Only if joining a game`;
+      `Only if joining a game`;
 
+    bannerState.center = `CREATE ROOM\nor\nJOIN ROOM`;
 
-    // CENTER BOARD = ACTION
-    bannerState.center =
-      `CREATE ROOM\nor\nJOIN ROOM`;
-
-    // RIGHT BOARD = DISPLAY NAME
     bannerState.right =
       `Display Name:\n` +
       `${nameInput.value || "(tap to type)"}\n\n` +
@@ -804,11 +843,8 @@ export function setChalkLobbyView({
     updateBanner("right");
   }
 
-
-  // Track which field user is editing (name or code)
   let editing = null; // "name" | "code" | null
 
-  // Listen for chalkboard taps specifically in lobby mode
   function onLobbyTap(e) {
     if (chalkMode !== "lobby") return;
 
@@ -829,7 +865,6 @@ export function setChalkLobbyView({
 
     const mesh = hits[0].object;
 
-    // LEFT = edit room code
     if (mesh === bannerMeshes.left) {
       editing = "code";
       const newCode = prompt("Enter room code:", codeInput.value || "");
@@ -839,7 +874,6 @@ export function setChalkLobbyView({
       return;
     }
 
-    // RIGHT = edit display name
     if (mesh === bannerMeshes.right) {
       editing = "name";
       const newName = prompt("Enter display name:", nameInput.value || "");
@@ -848,8 +882,6 @@ export function setChalkLobbyView({
       return;
     }
 
-
-    // CENTER = create or join
     if (mesh === bannerMeshes.center) {
       const code = codeInput.value.trim().toUpperCase();
       if (code.length === 6 && typeof onJoinRoomClick === "function") {
@@ -862,21 +894,19 @@ export function setChalkLobbyView({
   }
 
   renderer.domElement.addEventListener("pointerup", (e) => {
-    if (localStorage.getItem("inRoom") === "1") return; // disable lobby interactions in room
+    if (localStorage.getItem("inRoom") === "1") return;
     onLobbyTap(e);
   });
+
+  updateLobbyBoards();
 
   return function cleanupLobby() {
     if (renderer) {
       renderer.domElement.removeEventListener("pointerup", onLobbyTap);
     }
-    // leave question/results only
     chalkMode = "idle";
   };
 }
-
-
-
 
 /* ------------------------------------------------------------------
    INIT SCENE — REAL 3D COURTROOM
@@ -905,7 +935,7 @@ export function initScene(containerId = "table-app") {
   renderer.domElement.style.touchAction = "none";
   container.appendChild(renderer.domElement);
 
-  /* ---------------- CAMERA (establishing shot) ---------------- */
+  /* ---------------- CAMERA (behind players, facing judge) ---------------- */
 
   camera = new THREE.PerspectiveCamera(
     60,
@@ -1148,8 +1178,6 @@ export function initScene(containerId = "table-app") {
     judge.position.set(0, 1, 11.4);
     judge.rotation.y = Math.PI;
     scene.add(judge);
-
-    const head = judge.userData.headGroup || judge;
   }
 
   spawnJudgeRobot();
@@ -1209,19 +1237,31 @@ export function initScene(containerId = "table-app") {
     metalness: 0.1,
   });
 
-  const trimFront = new THREE.Mesh(new THREE.BoxGeometry(30, 0.4, 0.3), trimMat);
+  const trimFront = new THREE.Mesh(
+    new THREE.BoxGeometry(30, 0.4, 0.3),
+    trimMat
+  );
   trimFront.position.set(0, 12.1, 15);
   scene.add(trimFront);
 
-  const trimBack = new THREE.Mesh(new THREE.BoxGeometry(30, 0.4, 0.3, 0.3), trimMat);
+  const trimBack = new THREE.Mesh(
+    new THREE.BoxGeometry(30, 0.4, 0.3),
+    trimMat
+  );
   trimBack.position.set(0, 12.1, -15);
   scene.add(trimBack);
 
-  const trimLeft = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.4, 30), trimMat);
+  const trimLeft = new THREE.Mesh(
+    new THREE.BoxGeometry(0.3, 0.4, 30),
+    trimMat
+  );
   trimLeft.position.set(-15, 12.1, 0);
   scene.add(trimLeft);
 
-  const trimRight = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.4, 30), trimMat);
+  const trimRight = new THREE.Mesh(
+    new THREE.BoxGeometry(0.3, 0.4, 30),
+    trimMat
+  );
   trimRight.position.set(15, 12.1, 0);
   scene.add(trimRight);
 
@@ -1230,8 +1270,6 @@ export function initScene(containerId = "table-app") {
   createBannerMesh("left", -7);
   createBannerMesh("center", 0);
   createBannerMesh("right", 7);
-
-  // Initialize center with default title
   updateBanner("center");
 
   /* ---------------- INPUT & RESIZE ---------------- */
@@ -1260,7 +1298,7 @@ function onWindowResize() {
 }
 
 /* ------------------------------------------------------------------
-   PLAYER AVATARS
+   PLAYER AVATARS — SEMI-CIRCLE AT THE WELL
 ------------------------------------------------------------------- */
 
 export function setPlayersOnTable(players) {
@@ -1275,6 +1313,7 @@ export function setPlayersOnTable(players) {
   const limited = players.slice(0, TOTAL_SEATS);
   const currentIds = new Set(limited.map((p) => p.id));
 
+  // Remove missing avatars
   for (const [id, group] of avatars.entries()) {
     if (!currentIds.has(id)) {
       scene.remove(group);
@@ -1282,11 +1321,14 @@ export function setPlayersOnTable(players) {
     }
   }
 
-  // --- CLEAN EVEN SPACING ALONG THE WELL ---
   const total = limited.length;
-  const spacing = 3.4;   // ⬅️ improved
-  const baseZ = 3.8;     // ⬅️ improved
+  if (total === 0) return;
+
+  // Semi-circle parameters (centered at the red carpet)
+  const radius = 4.0;
+  const centerZ = 4.5; // a bit in front of the rail, facing judge
   const baseY = 1.6;
+  const span = Math.PI * 0.6; // total angular span (~108°)
 
   limited.forEach((p, idx) => {
     let group = avatars.get(p.id);
@@ -1296,18 +1338,24 @@ export function setPlayersOnTable(players) {
       scene.add(group);
     }
 
-    const offset = (idx - (total - 1) / 2) * spacing;
+    // Store info so solo mode can match AI names to avatars
+    group.userData.playerName = p.name;
+    group.userData.playerId = p.id;
 
-    group.position.set(offset, baseY, baseZ);
+    const t =
+      total === 1
+        ? 0
+        : -span / 2 + (span * idx) / (total - 1); // angle in radians
 
-    // ❌ REMOVE lookAt because it interferes with camera & head tracking
-    // group.lookAt(0, 2.0, 6);
+    const x = Math.sin(t) * radius;
+    const z = centerZ + Math.cos(t) * radius * 0.15; // slight arc in depth
 
+    group.position.set(x, baseY, z);
+    group.rotation.y = 0; // they all face forward toward the judge / chalkboards
     group.castShadow = true;
     group.receiveShadow = true;
   });
 }
-
 
 /* ------------------------------------------------------------------
    READY BADGES
@@ -1339,6 +1387,54 @@ export function updateReadyBadges(readyById = {}) {
 
     info.sprite.position.set(0, 8.0, 0);
   }
+}
+
+/* ------------------------------------------------------------------
+   SOLO AI SPEECH BUBBLES (CALLED FROM solo.js)
+------------------------------------------------------------------- */
+
+export function setAISpeechBubbles(aiVotes = []) {
+  if (!scene) return;
+
+  // Hide any existing bubbles
+  for (const info of speechBubbles.values()) {
+    if (info.sprite) info.sprite.visible = false;
+  }
+
+  aiVotes.forEach((v) => {
+    if (!v || !v.aiName || !v.thinking) return;
+
+    // Find avatar whose name matches this AI
+    let avatar = null;
+    for (const group of avatars.values()) {
+      if (group.userData.playerName === v.aiName) {
+        avatar = group;
+        break;
+      }
+    }
+    if (!avatar) return;
+
+    let info = speechBubbles.get(v.aiName);
+    if (!info) {
+      const tex = makeSpeechBubbleTexture(v.thinking);
+      if (!tex) return;
+
+      const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+      const sprite = new THREE.Sprite(mat);
+      sprite.scale.set(5, 2.5, 1);
+      sprite.position.set(0, 7.5, 0); // above head
+      avatar.add(sprite);
+
+      info = { sprite };
+      speechBubbles.set(v.aiName, info);
+    } else {
+      const tex = makeSpeechBubbleTexture(v.thinking);
+      if (!tex) return;
+      info.sprite.material.map = tex;
+      info.sprite.material.needsUpdate = true;
+      info.sprite.visible = true;
+    }
+  });
 }
 
 /* ------------------------------------------------------------------
@@ -1375,17 +1471,73 @@ function updateCameraFollow() {
   const MIN_PITCH = -0.35;
   headAnchor.rotation.x = THREE.MathUtils.clamp(pitch, MIN_PITCH, MAX_PITCH);
 
-  const CAMERA_FORWARD = 0.25;
-  const CAMERA_UP = 0.15;
+  let CAMERA_FORWARD = 0.25;
+  let CAMERA_UP = 0.15;
+
+// SOLO MODE ZOOM OUT
+if (localStorage.getItem("soloMode") === "1") {
+  CAMERA_FORWARD = -1.4;  // pull camera back
+  CAMERA_UP = 0.22;       // slightly higher
+}
+
 
   const camLocal = new THREE.Vector3(0, CAMERA_UP, CAMERA_FORWARD);
   headAnchor.localToWorld(camLocal);
 
-  const lookLocal = new THREE.Vector3(0, CAMERA_UP, CAMERA_FORWARD + 1.5);
+  const lookLocal = new THREE.Vector3(
+    0,
+    CAMERA_UP,
+    CAMERA_FORWARD + 1.5
+  );
   headAnchor.localToWorld(lookLocal);
 
   camera.position.lerp(camLocal, 0.35);
   camera.lookAt(lookLocal);
+}
+
+// ============================
+//   SOLO MODE — AI SEATING (FRONT BENCHES)
+// ============================
+export function placeSoloAI(aiNames = []) {
+  if (!scene) return;
+
+  // Remove ALL avatars except the player
+  for (const [id, model] of avatars.entries()) {
+    if (id !== myPlayerId) {
+      scene.remove(model);
+      avatars.delete(id);
+    }
+  }
+
+  // Four fixed seating positions on the front benches
+  const seats = [
+    { x: -7, z: 7 }, // left bench front
+    { x: -7, z: 4 },
+    { x:  7, z: 7 }, // right bench front
+    { x:  7, z: 4 }
+  ];
+
+  const me = avatars.get(myPlayerId);
+
+  aiNames.forEach((name, index) => {
+    const pos = seats[index];
+    if (!pos) return;
+
+    const bot = createAvatar(name);
+    bot.userData.playerName = name;
+
+    // Scale down 50%
+    bot.scale.set(0.5, 0.5, 0.5);
+
+    // Position on benches
+    bot.position.set(pos.x, 0.75, pos.z);
+
+    // Face the player
+    if (me) bot.lookAt(me.position.x, 1.4, me.position.z);
+
+    avatars.set(name, bot);
+    scene.add(bot);
+  });
 }
 
 /* ------------------------------------------------------------------
@@ -1398,8 +1550,16 @@ function animate() {
 
   const t = clock.getElapsedTime();
 
+  // Subtle float on avatars
   for (const [id, avatar] of avatars.entries()) {
     avatar.position.y = 1.6 + Math.sin(t * 2 + id.length) * 0.04;
+  }
+
+  // Billboard all speech bubbles toward camera
+  for (const info of speechBubbles.values()) {
+    if (info.sprite && info.sprite.visible) {
+      info.sprite.quaternion.copy(camera.quaternion);
+    }
   }
 
   updateHeadLook();

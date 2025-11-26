@@ -21,6 +21,7 @@ const mouse = new THREE.Vector2();
 
 // Callback into table.js when MULTIPLAYER is clicked
 let onMultiplayerClickCb = null;
+let onSoloClickCb = null;
 
 // ---------------------- POSTER HELPERS ----------------------
 
@@ -154,13 +155,15 @@ function createSparks() {
 
 export function initMainMenuScene(
   containerId = "table-app",
-  { onMultiplayerClick } = {}
+  { onMultiplayerClick, onSoloClick } = {}
 ) {
   containerEl = document.getElementById(containerId);
   if (!containerEl) throw new Error(`Missing container #${containerId}`);
 
   onMultiplayerClickCb =
     typeof onMultiplayerClick === "function" ? onMultiplayerClick : null;
+    onSoloClickCb =
+  typeof onSoloClick === "function" ? onSoloClick : null;
 
   // Clean up any previous canvas in the container
   while (containerEl.firstChild) {
@@ -430,9 +433,15 @@ function onClickPoster(event) {
   if (action === "multiplayer" && onMultiplayerClickCb) {
     onMultiplayerClickCb();
   } else if (action === "solo") {
-    alert("Solo mode coming soon!");
+    // ⭐ NEW: call the solo callback instead of alert
+    if (onSoloClickCb) {
+      onSoloClickCb();
+    } else {
+      alert("Solo mode callback not wired yet.");
+    }
   }
 }
+
 
 // ---------------------- ANIMATION LOOP ---------------------
 
