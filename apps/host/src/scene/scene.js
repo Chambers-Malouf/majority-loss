@@ -7,6 +7,7 @@ import { myPlayerId } from "../state.js";
 import { playIntroCutscene } from "../cutscenes/introCutscene.js";
 import { playWinnerCutscene } from "../cutscenes/winnerCutscene.js";
 import { attachCutsceneCamera } from "../cutscenes/cutsceneCamera.js";
+import { cutsceneActive } from "../cutscenes/cutsceneCamera.js";
 
 
 let scene, camera, renderer;
@@ -39,6 +40,24 @@ const TOTAL_SEATS = 5;
 // Raycaster for chalkboard clicks
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
+
+export function hideCourtroomObjects() {
+  if (!scene) return;
+  scene.traverse((obj) => {
+    if (!obj.userData) obj.userData = {};
+    obj.userData._savedVisible = obj.visible;
+    obj.visible = false;
+  });
+}
+
+export function showCourtroomObjects() {
+  if (!scene) return;
+  scene.traverse((obj) => {
+    if (obj.userData && obj.userData._savedVisible !== undefined) {
+      obj.visible = obj.userData._savedVisible;
+    }
+  });
+}
 
 /* ------------------------------------------------------------------
    PUBLIC: PLAY INTRO + WINNER CUTSCENES SAFELY
@@ -268,6 +287,26 @@ function updateOrientationOverlay() {
       "<div style='font-size:4rem;margin-bottom:1rem;'>📱↻</div>" +
       "<div><strong>Rotate your device</strong><br/>Landscape mode works best.</div>";
     document.body.appendChild(overlay);
+  }
+}
+// Hide all avatars except the winner(s)
+export function hideNonWinners(winnerNames = []) {
+  for (const [id, av] of avatars.entries()) {
+    const name = av.userData?.playerName;
+    if (!name) continue;
+
+    if (winnerNames.includes(name)) {
+      av.visible = true;
+    } else {
+      av.visible = false;
+    }
+  }
+}
+
+// Restore all avatars
+export function restoreAllAvatars() {
+  for (const [id, av] of avatars.entries()) {
+    av.visible = true;
   }
 }
 
@@ -989,6 +1028,7 @@ export function initScene(containerId = "table-app") {
 
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0xe9edf5);
+  window.__majorityScene = scene;
 
   renderer = new THREE.WebGLRenderer({
     antialias: true,
@@ -1528,8 +1568,9 @@ function updateHeadLook() {
 }
 
 function updateCameraFollow() {
-  if (!camera) return;
-
+  const cam = window.__majorityCamera;
+  if (cutsceneActive()) return;
+  if (!cam) return;
   const id = myPlayerId;
   const avatar = avatars.get(id);
   if (!avatar) return;
@@ -1537,21 +1578,18 @@ function updateCameraFollow() {
   const headAnchor =
     avatar.userData.headAnchor || avatar.userData.headGroup || avatar;
 
+  // Rotate avatar with yaw (left/right look)
   avatar.rotation.y = yaw;
 
+  // Clamp pitch (up/down look)
   const MAX_PITCH = 0.55;
   const MIN_PITCH = -0.35;
   headAnchor.rotation.x = THREE.MathUtils.clamp(pitch, MIN_PITCH, MAX_PITCH);
 
-  let CAMERA_FORWARD = 0.25;
-  let CAMERA_UP = 0.15;
-
-// SOLO MODE ZOOM OUT
-if (localStorage.getItem("soloMode") === "1") {
-  CAMERA_FORWARD = -1.4;  // pull camera back
-  CAMERA_UP = 0.22;       // slightly higher
-}
-
+  // *** IDENTICAL CAMERA FOR SOLO + MULTIPLAYER ***
+  // No overrides, no zoom-out, no special solo adjustments.
+  const CAMERA_FORWARD = 0.25;
+  const CAMERA_UP = 0.15;
 
   const camLocal = new THREE.Vector3(0, CAMERA_UP, CAMERA_FORWARD);
   headAnchor.localToWorld(camLocal);
@@ -1563,9 +1601,11 @@ if (localStorage.getItem("soloMode") === "1") {
   );
   headAnchor.localToWorld(lookLocal);
 
-  camera.position.lerp(camLocal, 0.35);
-  camera.lookAt(lookLocal);
+  cam.position.lerp(camLocal, 0.35);
+  cam.lookAt(lookLocal);
+
 }
+
 
 // ============================
 //   SOLO MODE — AI SEATING (FRONT BENCHES)
@@ -1637,5 +1677,5 @@ function animate() {
   updateHeadLook();
   updateCameraFollow();
 
-  renderer.render(scene, camera);
+  renderer.render(scene, window.__majorityCamera);
 }

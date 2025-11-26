@@ -1,12 +1,12 @@
 // introCutscene.js
 import * as THREE from "three";
-import { moveCameraTo, endCutscene } from "./cutsceneCamera.js";
+import { moveCameraTo, stopCutscene } from "./cutsceneCamera.js";
 
 const judgeLines = [
   "Attention robots...",
   "You five stand on trial under suspicion of being HUMAN.",
   "You will answer 10 questions.",
-  "Each round, you must match the MAJORITY answer to survive.",
+  "Each round, you must match the MINORITY answer to survive.",
   "The one with the highest score will be declared a true robot.",
   "Good luck. Your trial begins now..."
 ];
@@ -49,6 +49,6 @@ export async function playIntroCutscene(onFinish = () => {}) {
   // Remove overlay
   box.remove();
 
-  endCutscene();
+  stopCutscene();
   onFinish();
 }

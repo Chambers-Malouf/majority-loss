@@ -319,19 +319,11 @@ function wireSocketEvents() {
 
   socket.on("game_over", ({ leaderboard }) => {
   console.log("🏁 Server says GAME OVER:", leaderboard);
+    const winners = leaderboard.filter(p => 
+    p.points === leaderboard[0].points
+  ).map(p => p.name);
 
-  const winnerName = leaderboard?.[0]?.name || "Winner";
-
-  // Play cinematic first
-  playWinnerFromScene(winnerName, () => {
-    console.log("🏆 Winner cutscene finished — showing end screen");
-
-    currentRound = null;
-    currentRemaining = null;
-    gameStarted = false;
-
-    showGameOverOverlay(leaderboard);
-  });
+  playWinnerFromScene(winners);
 });
 
 }
@@ -352,8 +344,7 @@ document.addEventListener("DOMContentLoaded", () => {
       showLobbyOverlay();
     },
     onSoloClick: () => {
-      console.log("SOLO POSTER CLICKED");
-      disposeMainMenuScene();
+      console.log("SOLO POSTER CLICKED — from table.js");
       startSoloMode();
     },
   });

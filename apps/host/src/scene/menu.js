@@ -1,18 +1,18 @@
-console.log("🔥 mainMenuScene.js LOADED (live)");
 // apps/host/src/scene/mainMenuScene.js
+console.log("🔥 mainMenuScene.js LOADED (live)");
+
 import * as THREE from "three";
 import { createAvatar } from "./avatar.js";
-import { playIntroCutscene } from "../cutscenes/introCutscene.js";
-import { initScene } from "./scene.js";
 
-
+// 👇 we NO LONGER import playIntroCutscene or initScene here
+// import { playIntroCutscene } from "../cutscenes/introCutscene.js";
+// import { initScene } from "./scene.js";
 
 let scene, camera, renderer;
 let clock;
 let animationId = null;
 let containerEl = null;
 let soloStarting = false;
-
 
 // Robots walking / hovering in hallway
 const robots = [];
@@ -25,7 +25,7 @@ let hoveredPoster = null;
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 
-// Callback into table.js when MULTIPLAYER is clicked
+// Callbacks into table.js
 let onMultiplayerClickCb = null;
 let onSoloClickCb = null;
 
@@ -38,11 +38,9 @@ function makePosterTexture({ title, subtitle, bgColor, accentColor }) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
 
-  // Background
   ctx.fillStyle = bgColor;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // Fake spray / graffiti edge
   const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
   grad.addColorStop(0, accentColor);
   grad.addColorStop(1, "rgba(255,255,255,0)");
@@ -57,7 +55,6 @@ function makePosterTexture({ title, subtitle, bgColor, accentColor }) {
   ctx.fill();
   ctx.globalAlpha = 1;
 
-  // Title
   ctx.fillStyle = "#ffffff";
   ctx.font =
     "bold 68px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
@@ -67,7 +64,6 @@ function makePosterTexture({ title, subtitle, bgColor, accentColor }) {
   ctx.shadowBlur = 12;
   ctx.fillText(title, canvas.width / 2, canvas.height * 0.45);
 
-  // Subtitle
   if (subtitle) {
     ctx.shadowBlur = 0;
     ctx.fillStyle = "#ffe9b3";
@@ -96,11 +92,12 @@ function createPoster(opts) {
   const mesh = new THREE.Mesh(geometry, material);
   mesh.userData.type = opts.type;
   mesh.userData.isPoster = true;
-  mesh.userData.action = opts.type === "multiplayer"
-    ? "multiplayer"
-    : opts.type === "solo"
-    ? "solo"
-    : null;
+  mesh.userData.action =
+    opts.type === "multiplayer"
+      ? "multiplayer"
+      : opts.type === "solo"
+      ? "solo"
+      : null;
   posters.push(mesh);
   return mesh;
 }
@@ -113,21 +110,17 @@ function spawnRobot({ x, z, hover }) {
   bot.userData.baseY = bot.position.y;
   bot.userData.phase = Math.random() * Math.PI * 2;
 
-  // Motion config
-  bot.userData.direction = Math.random() < 0.5 ? -1 : 1; // left/right
-  bot.userData.speed = 1.2 + Math.random() * 0.8; // units/sec
+  bot.userData.direction = Math.random() < 0.5 ? -1 : 1;
+  bot.userData.speed = 1.2 + Math.random() * 0.8;
   bot.userData.minX = -16;
   bot.userData.maxX = 16;
   bot.userData.hover = hover;
-  bot.userData.stopTimer = 0; // time remaining for "inspect" pause
+  bot.userData.stopTimer = 0;
 
   scene.add(bot);
   robots.push(bot);
 }
 
-/**
- * Small spark-like particles near the ceiling.
- */
 function createSparks() {
   const sparkCount = 40;
   const geom = new THREE.BufferGeometry();
@@ -168,10 +161,8 @@ export function initMainMenuScene(
 
   onMultiplayerClickCb =
     typeof onMultiplayerClick === "function" ? onMultiplayerClick : null;
-    onSoloClickCb =
-  typeof onSoloClick === "function" ? onSoloClick : null;
+  onSoloClickCb = typeof onSoloClick === "function" ? onSoloClick : null;
 
-  // Clean up any previous canvas in the container
   while (containerEl.firstChild) {
     containerEl.removeChild(containerEl.firstChild);
   }
@@ -181,7 +172,6 @@ export function initMainMenuScene(
 
   clock = new THREE.Clock();
 
-  // Renderer
   renderer = new THREE.WebGLRenderer({
     antialias: true,
     powerPreference: "high-performance",
@@ -198,7 +188,6 @@ export function initMainMenuScene(
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   containerEl.appendChild(renderer.domElement);
 
-  // Camera — mid-range, facing back wall (posters)
   camera = new THREE.PerspectiveCamera(
     60,
     window.innerWidth / window.innerHeight,
@@ -208,7 +197,6 @@ export function initMainMenuScene(
   camera.position.set(0, 4, 12);
   camera.lookAt(0, 3, -4);
 
-  // --------- LIGHTING ----------
   const ambient = new THREE.AmbientLight(0xffffff, 0.55);
   scene.add(ambient);
 
@@ -224,9 +212,6 @@ export function initMainMenuScene(
   tealFill.position.set(10, 4, -1);
   scene.add(tealFill);
 
-  // --------- HALLWAY GEOMETRY ----------
-
-  // Floor
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(40, 12),
     new THREE.MeshStandardMaterial({
@@ -239,7 +224,6 @@ export function initMainMenuScene(
   floor.position.set(0, 0, -2);
   scene.add(floor);
 
-  // Ceiling
   const ceiling = new THREE.Mesh(
     new THREE.PlaneGeometry(40, 12),
     new THREE.MeshStandardMaterial({
@@ -254,7 +238,6 @@ export function initMainMenuScene(
   ceiling.position.set(0, 7, -2);
   scene.add(ceiling);
 
-  // Back wall (where posters live)
   const backWall = new THREE.Mesh(
     new THREE.PlaneGeometry(40, 10),
     new THREE.MeshStandardMaterial({
@@ -266,7 +249,6 @@ export function initMainMenuScene(
   backWall.position.set(0, 3.5, -6);
   scene.add(backWall);
 
-  // Side walls
   const leftWall = new THREE.Mesh(
     new THREE.PlaneGeometry(12, 10),
     new THREE.MeshStandardMaterial({
@@ -284,7 +266,6 @@ export function initMainMenuScene(
   rightWall.position.set(20, 3.5, -2);
   scene.add(rightWall);
 
-  // Glow strip above posters
   const posterGlow = new THREE.Mesh(
     new THREE.BoxGeometry(20, 0.1, 0.3),
     new THREE.MeshBasicMaterial({
@@ -296,12 +277,10 @@ export function initMainMenuScene(
   posterGlow.position.set(0, 6.4, -5.8);
   scene.add(posterGlow);
 
-  // --------- POSTERS ----------
-
   const soloPoster = createPoster({
     type: "solo",
     title: "SOLO",
-    subtitle: "vs AI (coming soon)",
+    subtitle: "vs AI",
     bgColor: "#1d4ed8",
     accentColor: "#22c55e",
   });
@@ -328,28 +307,23 @@ export function initMainMenuScene(
   multiPoster.position.set(7, 3.3, -5.9);
   scene.add(multiPoster);
 
-  // Slight tilt toward camera
   posters.forEach((p) => {
     p.rotation.x = -0.05;
   });
 
-  // --------- ROBOTS (some hover, some walk) ----------
-  spawnRobot({ x: 0, z: -3, hover: true }); // center greeter
+  spawnRobot({ x: 0, z: -3, hover: true });
   spawnRobot({ x: -10, z: -1.5, hover: false });
   spawnRobot({ x: -5, z: -2.5, hover: false });
   spawnRobot({ x: 5, z: -1.3, hover: true });
   spawnRobot({ x: 11, z: -2.2, hover: false });
 
-  // --------- SPARKS ----------
   const sparks = createSparks();
   sparks.userData.isSparks = true;
 
-  // --------- EVENTS ----------
   window.addEventListener("resize", onWindowResize);
   renderer.domElement.addEventListener("pointermove", onPointerMove);
   renderer.domElement.addEventListener("click", onClickPoster);
 
-  // --------- START LOOP ----------
   animate();
 }
 
@@ -377,6 +351,7 @@ export function disposeMainMenuScene() {
   hoveredPoster = null;
   posters.length = 0;
   robots.length = 0;
+  soloStarting = false;
 }
 
 // ---------------------- EVENTS / INTERACTION ---------------
@@ -437,37 +412,25 @@ function onClickPoster(event) {
   const action = obj.userData.action;
   console.log("✅ Poster clicked:", action, obj.userData);
 
-  // -----------------------
-  // MULTIPLAYER POSTER
-  // -----------------------
+  // MULTIPLAYER
   if (action === "multiplayer" && onMultiplayerClickCb) {
     onMultiplayerClickCb();
     return;
   }
 
-  // -----------------------
-  // SOLO POSTER (play cutscene first)
-  // -----------------------
+  // SOLO — just leave hallway & let solo.js handle cutscenes
   if (action === "solo" && onSoloClickCb) {
-  if (soloStarting) return;         // stop double-trigger
-  soloStarting = true;
+    if (soloStarting) return;
+    soloStarting = true;
 
-  console.log("🎬 SOLO POSTER CLICKED — initializing SOLO MODE");
+    console.log("🎬 SOLO POSTER CLICKED — handing off to solo.js");
 
-  renderer.domElement.removeEventListener("click", onClickPoster);
-  disposeMainMenuScene();
+    renderer.domElement.removeEventListener("click", onClickPoster);
+    disposeMainMenuScene();
 
-  initScene("table-app");
-
-  playIntroCutscene(() => {
-    console.log("🎬 Intro done → starting solo mode");
     onSoloClickCb();
-  });
+  }
 }
-
-}
-
-
 
 // ---------------------- ANIMATION LOOP ---------------------
 
@@ -478,7 +441,6 @@ function animate() {
   const dt = clock.getDelta();
   const t = clock.getElapsedTime();
 
-  // ROBOT motion (keep sway / hover / walking)
   for (const bot of robots) {
     const data = bot.userData;
     if (!data) continue;
@@ -505,15 +467,13 @@ function animate() {
 
     if (data.hover) {
       const bob = Math.sin(t * 2 + data.phase) * 0.15;
-      bot.position.y = data.baseY + bob;
+      bot.position.y = bot.userData.baseY + bob;
     } else {
       const step = Math.abs(Math.sin(t * 6 + data.phase)) * 0.08;
-      bot.position.y = data.baseY + step;
+      bot.position.y = bot.userData.baseY + step;
     }
   }
 
-  // Camera stays fixed (no sway); just keep it looking at posters
   camera.lookAt(0, 3, -4);
-
   renderer.render(scene, camera);
 }

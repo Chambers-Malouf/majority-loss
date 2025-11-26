@@ -1,14 +1,51 @@
-// cutsceneCamera.js
 import * as THREE from "three";
 
 let camera = null;
 let isCutscene = false;
 
+// Store original gameplay camera state
+let savedGameplayPos = null;
+let savedGameplayLook = null;
+
 export function attachCutsceneCamera(cam) {
   camera = cam;
 }
 
-// Tween camera to a position + look target
+/* ----------------------------------------------------------
+    CUTSCENE STATE CONTROL
+---------------------------------------------------------- */
+
+export function startCutscene() {
+  if (!camera) return;
+
+  isCutscene = true;
+
+  // Save camera state before cutscene hijacks it
+  savedGameplayPos = camera.position.clone();
+
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+  savedGameplayLook = camera.position.clone().add(dir);
+}
+
+export function stopCutscene() {
+  if (!camera) return;
+
+  // Restore gameplay camera
+  if (savedGameplayPos) camera.position.copy(savedGameplayPos);
+  if (savedGameplayLook) camera.lookAt(savedGameplayLook);
+
+  isCutscene = false;
+}
+
+export function cutsceneActive() {
+  return isCutscene;
+}
+
+/* ----------------------------------------------------------
+    CAMERA TWEEN
+---------------------------------------------------------- */
+
 export function moveCameraTo(pos, look, duration = 1.5) {
   return new Promise((resolve) => {
     if (!camera) return resolve();
@@ -30,25 +67,13 @@ export function moveCameraTo(pos, look, duration = 1.5) {
       if (t >= 1) t = 1;
 
       camera.position.lerpVectors(startPos, endPos, t);
-
       const curLook = new THREE.Vector3().lerpVectors(startLook, endLook, t);
       camera.lookAt(curLook);
 
-      if (t < 1) {
-        requestAnimationFrame(animate);
-      } else {
-        resolve();
-      }
+      if (t < 1) requestAnimationFrame(animate);
+      else resolve();
     }
 
     animate();
   });
-}
-
-export function endCutscene() {
-  isCutscene = false;
-}
-
-export function cutsceneActive() {
-  return isCutscene;
 }

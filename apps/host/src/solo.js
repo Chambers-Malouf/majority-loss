@@ -1,15 +1,16 @@
 // apps/host/src/solo.js
 console.log("🧠 solo.js loaded — SOLO MODE vs 4 AI");
-import { playIntroFromScene, playWinnerFromScene } from "./scene/scene.js";
 
 import {
+  playIntroFromScene,
+  playWinnerFromScene,
   initScene,
   setCourtroomBanner,
   setChalkQuestionView,
   setChalkResultsView,
   setPlayersOnTable,
   setAISpeechBubbles,
-  placeSoloAI
+  placeSoloAI,
 } from "./scene/scene.js";
 import { setMyPlayerId } from "./state.js";
 
@@ -18,31 +19,31 @@ const HTTP_BASE = SOCKET_URL
   ? SOCKET_URL.replace(/^wss:\/\//, "https://").replace(/^ws:\/\//, "http://")
   : window.location.origin;
 
-const SOLO_MAX_ROUNDS = 10;
-const SOLO_TIMER_SECONDS = 20;
+const SOLO_MAX_ROUNDS = 1;
+const SOLO_TIMER_SECONDS = 5;
 
 // ======== 4 AI PERSONALITIES ========
 const AI_LIST = [
   {
     name: "Chishiya",
     personality:
-      "You are Shuntaro Chishiya from Alice in Borderland, playing a psychological game called Majority Loss where the goal is to end up in the MINORITY of votes each round. You are cold, calm, hyper-rational, and treat everything like a puzzle. You speak sparsely and clinically."
+      "You are Shuntaro Chishiya from Alice in Borderland, playing a psychological game called Majority Loss where the goal is to end up in the MINORITY of votes each round. You are cold, calm, hyper-rational, and treat everything like a puzzle. You speak sparsely and clinically.",
   },
   {
     name: "Ann",
     personality:
-      "You are Ann Walsh a female student at Ole Miss, playing Majority Loss, a game where the goal is to be in the MINORITY of votes to win. You are an autistic, yapper who loves planes ."
+      "You are Ann Walsh a female student at Ole Miss, playing Majority Loss, a game where the goal is to be in the MINORITY of votes to win. You are an autistic, yapper who loves planes .",
   },
   {
     name: "Yumeko",
     personality:
-      "You are Yumeko Jabami from Kakegurui, playing Majority Loss, a game where the minority of votes wins. You are a thrill-seeking gambler who delights in risk, chaos, and psychological tension. You sound delighted, intense, and dramatic."
+      "You are Yumeko Jabami from Kakegurui, playing Majority Loss, a game where the minority of votes wins. You are a thrill-seeking gambler who delights in risk, chaos, and psychological tension. You sound delighted, intense, and dramatic.",
   },
   {
     name: "L",
     personality:
-      "You are L from Death Note, playing Majority Loss, a game where the minority of votes wins each round. You are analytical, monotone, and strange. You briefly explain the logic behind your choice in a detached way."
-  }
+      "You are L from Death Note, playing Majority Loss, a game where the minority of votes wins each round. You are analytical, monotone, and strange. You briefly explain the logic behind your choice in a detached way.",
+  },
 ];
 
 // ======== SOLO MODE STATE ========
@@ -50,14 +51,14 @@ let soloRunning = false;
 let soloRoundNumber = 0;
 let soloScores = new Map();
 
-const wait = ms => new Promise(r => setTimeout(r, ms));
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function setupSoloTable(playerName) {
   const playerId = "SOLO_PLAYER";
 
   setMyPlayerId(playerId);
 
-  // ONLY place YOU using multiplayer logic (keeps camera stable)
+  // place YOU using multiplayer logic
   setPlayersOnTable([{ id: playerId, name: playerName }]);
 
   // Now place the AI manually using our semi-circle function
@@ -80,6 +81,7 @@ export async function startSoloMode() {
     "You";
 
   localStorage.setItem("playerName", playerName);
+  localStorage.setItem("soloMode", "1"); // 👈 used by scene.js camera zoom
 
   // Initialize scores
   soloScores.set(playerName, 0);
@@ -87,17 +89,21 @@ export async function startSoloMode() {
 
   console.log("🎮 SOLO MODE START — player:", playerName);
 
-  await new Promise(resolve => {
-    playIntroFromScene(() => {
-        resolve();
-    });
-    });
-    initScene("table-app");
+  // 1. Build courtroom scene + camera
+  initScene("table-app");
+
+  // 2. Play intro cutscene once, using scene camera
+  await new Promise((resolve) => {
+    console.log("🎬 SOLO — playing intro cutscene from scene.js");
+    playIntroFromScene(resolve);
+  });
+
+  // 3. Place players and AI, show welcome banner
   setupSoloTable(playerName);
 
-  // Welcome banner
   setCourtroomBanner("", `SOLO MODE — You vs 4 AI`, "");
 
+  // 4. Enter the round loop
   await runNextSoloRound(playerName);
 }
 
@@ -113,17 +119,17 @@ async function fetchSoloQuestion() {
     return {
       id: data?.question?.id ?? 0,
       text: data?.question?.text || "Would you rather?",
-      options: (data?.options || []).map(o => ({
+      options: (data?.options || []).map((o) => ({
         id: o.id,
-        text: o.text
-      }))
+        text: o.text,
+      })),
     };
   } catch (err) {
     console.error("❌ fetchSoloQuestion:", err);
     return {
       id: 0,
       text: "Could not fetch question.",
-      options: []
+      options: [],
     };
   }
 }
@@ -141,8 +147,8 @@ async function soloGetAIVote(ai, question, options) {
         aiPersonality: ai.personality,
         question,
         options,
-        roomId: null
-      })
+        roomId: null,
+      }),
     });
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -152,14 +158,14 @@ async function soloGetAIVote(ai, question, options) {
     return {
       aiName: ai.name,
       thinking: data?.thinking || "…",
-      optionId: data?.choiceId ?? null
+      optionId: data?.choiceId ?? null,
     };
   } catch (err) {
     console.error("AI error:", ai.name, err);
     return {
       aiName: ai.name,
       thinking: "…",
-      optionId: null
+      optionId: null,
     };
   }
 }
@@ -183,7 +189,7 @@ async function runNextSoloRound(playerName) {
       ? question.options
       : [
           { id: 1, text: "Option A" },
-          { id: 2, text: "Option B" }
+          { id: 2, text: "Option B" },
         ];
 
   let remaining = SOLO_TIMER_SECONDS;
@@ -191,7 +197,6 @@ async function runNextSoloRound(playerName) {
 
   const roomLabel = "SOLO";
 
-  // DRAW THE QUESTION PANELS
   function updateBoards() {
     setChalkQuestionView({
       roomId: roomLabel,
@@ -200,10 +205,10 @@ async function runNextSoloRound(playerName) {
       options,
       remaining,
       myVoteOptionId,
-      onOptionClick: id => {
+      onOptionClick: (id) => {
         myVoteOptionId = id;
         updateBoards();
-      }
+      },
     });
   }
 
@@ -211,33 +216,29 @@ async function runNextSoloRound(playerName) {
 
   setCourtroomBanner(
     null,
-    `Round ${soloRoundNumber}\nLook around to see what your ai opponents are thinking`,
+    `Round ${soloRoundNumber}\nLook around to see what your AI opponents are thinking`,
     null
   );
 
-  // Kick off AI thinking asynchronously (we show bubbles DURING round)
-  const aiVotePromises = AI_LIST.map(ai =>
+  const aiVotePromises = AI_LIST.map((ai) =>
     soloGetAIVote(ai, question, options)
   );
 
-  // ========= COUNTDOWN ==========
   while (remaining > 0) {
     await wait(1000);
     remaining -= 1;
     updateBoards();
 
-    // Every 2 seconds, update live AI thought bubbles
     if (remaining % 2 === 0) {
       const partial = await Promise.allSettled(aiVotePromises);
       const filtered = partial
-        .filter(p => p.status === "fulfilled")
-        .map(p => p.value);
+        .filter((p) => p.status === "fulfilled")
+        .map((p) => p.value);
 
       setAISpeechBubbles(filtered);
     }
   }
 
-  // ========= COLLECT FINAL AI VOTES ==========
   const aiVotesRaw = await Promise.all(aiVotePromises);
   setAISpeechBubbles(aiVotesRaw);
 
@@ -245,42 +246,38 @@ async function runNextSoloRound(playerName) {
     myVoteOptionId = options[Math.floor(Math.random() * options.length)].id;
   }
 
-  // ========= TALLY ==========
-  const counts = options.map(opt => ({
+  const counts = options.map((opt) => ({
     optionId: opt.id,
     text: opt.text,
-    count: 0
+    count: 0,
   }));
 
   const votes = [];
 
   function addVote(optId) {
-    const row = counts.find(c => Number(c.optionId) === Number(optId));
+    const row = counts.find((c) => Number(c.optionId) === Number(optId));
     if (row) row.count++;
   }
 
-  // You
   addVote(myVoteOptionId);
   votes.push({ playerName, optionId: myVoteOptionId });
 
-  // AI votes
   for (const v of aiVotesRaw) {
     if (!v) continue;
 
-    const exists = options.some(o => Number(o.id) === Number(v.optionId));
+    const exists = options.some((o) => Number(o.id) === Number(v.optionId));
     const id = exists ? v.optionId : options[0].id;
 
     addVote(id);
     votes.push({ playerName: v.aiName, optionId: id });
   }
 
-  // ========= FIND MINORITY OPTION ==========
-  const nonZero = counts.filter(c => c.count > 0);
+  const nonZero = counts.filter((c) => c.count > 0);
   let winningOptionId = null;
 
   if (nonZero.length > 0) {
-    const minVal = Math.min(...nonZero.map(c => c.count));
-    const minority = nonZero.filter(c => c.count === minVal);
+    const minVal = Math.min(...nonZero.map((c) => c.count));
+    const minority = nonZero.filter((c) => c.count === minVal);
     if (minority.length === 1) winningOptionId = minority[0].optionId;
   }
 
@@ -302,7 +299,6 @@ async function runNextSoloRound(playerName) {
 
   const leaderboard = buildLeaderboard();
 
-  // ========= SHOW RESULTS ==========
   setChalkResultsView({
     roomId: roomLabel,
     roundNumber: soloRoundNumber,
@@ -310,7 +306,7 @@ async function runNextSoloRound(playerName) {
     options,
     winningOptionId,
     counts,
-    leaderboard
+    leaderboard,
   });
 
   setCourtroomBanner(
@@ -338,12 +334,10 @@ async function showSoloGameOver() {
   const leaderboard = buildLeaderboard();
   const winnerName = leaderboard[0]?.name || "Winner";
 
-  // 🎬 Play winner cutscene FIRST
-  await new Promise(resolve => {
+  await new Promise((resolve) => {
     playWinnerFromScene(winnerName, resolve);
   });
 
-  // 🟦 Now show chalkboard final results after cutscene
   setChalkResultsView({
     roomId: "SOLO",
     roundNumber: soloRoundNumber,
@@ -351,7 +345,7 @@ async function showSoloGameOver() {
     options: [],
     winningOptionId: null,
     counts: [],
-    leaderboard
+    leaderboard,
   });
 
   const lines = leaderboard.map(
@@ -367,6 +361,7 @@ async function showSoloGameOver() {
     ""
   );
 
+  localStorage.removeItem("soloMode");
+
   await wait(6000);
 }
-
