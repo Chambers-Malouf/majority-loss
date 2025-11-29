@@ -111,6 +111,7 @@ app.get("/api/profile/:name", async (req, res) => {
     return res.status(500).json({ ok: false, error: err.message });
   }
 });
+let io;
 
 // ===================================================
 // ================= SOLO / AI ROUTES ================
