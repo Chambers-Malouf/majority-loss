@@ -1,3 +1,4 @@
+/*apps/host/src/ui/lobby.css ( our global css file, somehow)
 /* Floating button container (right side of screen) */
 .lobby-buttons {
   position: fixed;
@@ -47,4 +48,49 @@
 
 canvas {
   z-index: 1;
+}
+
+.chalk-dropdown {
+  background: rgba(0,0,0,0.5);
+  color: white;
+  border: 2px solid #fefae0;
+  padding: 6px 10px;
+  font-size: 18px;
+  border-radius: 6px;
+}
+.chalk-select {
+  background: rgba(0,0,0,0.7);
+  color: white;
+  border: 2px solid white;
+  padding: 6px 10px;
+  font-size: 18px;
+  border-radius: 6px;
+  font-family: 'Chalk', sans-serif;
+}
+.chalk-dropdown {
+  appearance: none;
+  background-color: rgba(10, 40, 20, 0.9); /* green chalkboard */
+  color: #f5e9c9; /* chalk color */
+  border: 2px solid #e8dcbf;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 20px;
+  font-family: "Chalk", "Comic Sans MS", sans-serif;
+  cursor: pointer;
+  box-shadow: 0 0 6px rgba(255,255,255,0.3);
+  transition: 0.15s;
+}
+
+.chalk-dropdown:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 12px rgba(255,255,255,0.5);
+}
+
+.chalk-dropdown:active {
+  transform: scale(0.98);
+}
+
+/* add little ▼ */
+.chalk-dropdown::after {
+  content: "▼";
 }

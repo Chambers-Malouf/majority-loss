@@ -9,6 +9,7 @@ const judgeLines = [
   "Each round, you must answer along with the MINORITY to receive a point.",
   "If you are in the minority you will receive a point",
   "The one with the most points once the game is over will be declared a true robot.",
+  "Only the true robot that wins this game will be set free",
   "Good luck. Your trial begins now..."
 ];
 

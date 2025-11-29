@@ -116,29 +116,52 @@ app.get("/api/profile/:name", async (req, res) => {
 // ================= SOLO / AI ROUTES ================
 // ===================================================
 
-app.get("/api/solo/question", async (_req, res) => {
-  try {
-    const q = await getRandomQuestionWithOptions();
-    res.json({
-      ok: true,
-      question: { id: q.id, text: q.text },
-      options: q.options,
-    });
-  } catch (e) {
-    console.error("❌ Failed to fetch solo question:", e);
-    res.status(500).json({ ok: false, error: String(e?.message || e) });
-  }
-});
-
-let io; // defined after server creation, but referenced in handler below
-
 app.post("/api/ai-round", async (req, res) => {
   const { question, options, aiName, aiPersonality, roomId } = req.body || {};
   if (!question?.text || !Array.isArray(options)) {
     return res.status(400).json({ error: "BAD_INPUT" });
   }
 
+  // ---------- PERSONALITY-STYLE LIBRARY ----------
+  const thoughtStyles = {
+    "calm": [
+      "I think most will choose __MAJ__, so picking __MIN__ gives me an edge.",
+      "Quiet logic says the crowd favors __MAJ__, so I’ll lean toward __MIN__.",
+      "Most people go with __MAJ__, so __MIN__ is safer."
+    ],
+    "chaotic": [
+      "Chaos calls me to reject __MAJ__ and dive into __MIN__.",
+      "Instinct screams avoid __MAJ__; choosing __MIN__ feels thrilling.",
+      "I crave the minority, so I’ll oppose the herd choosing __MAJ__ and take __MIN__."
+    ],
+    "strategic": [
+      "Statistically most pick __MAJ__, meaning __MIN__ wins.",
+      "Majority logic: __MAJ__ dominates, so __MIN__ is optimal.",
+      "People bias toward __MAJ__, so I’ll take __MIN__."
+    ],
+    "sarcastic": [
+      "Everyone will obviously choose __MAJ__, so I guess I’m stuck choosing __MIN__.",
+      "The crowd loves __MAJ__; fine, I’ll go with __MIN__.",
+      "Let them pick __MAJ__; I’ll quietly take __MIN__."
+    ],
+    "dramatic": [
+      "The masses will flock to __MAJ__, so I embrace the lonely path of __MIN__.",
+      "They chase __MAJ__, but destiny pulls me toward __MIN__.",
+      "The herd seeks __MAJ__; I choose the shadowed minority of __MIN__."
+    ]
+  };
+
+  // pick a style based on personality, fallback random
+  const styleKey =
+    (aiPersonality && thoughtStyles[aiPersonality.toLowerCase()]) ?
+      aiPersonality.toLowerCase() :
+      Object.keys(thoughtStyles)[Math.floor(Math.random() * 5)];
+
+  const styleArray = thoughtStyles[styleKey];
+  const template = styleArray[Math.floor(Math.random() * styleArray.length)];
+
   try {
+    // Ask DeepSeek ONLY for minority choice (not the thought text)
     const r = await fetch("https://api.deepseek.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -147,33 +170,22 @@ app.post("/api/ai-round", async (req, res) => {
       },
       body: JSON.stringify({
         model: "deepseek-chat",
-        temperature: 0.9,
+        temperature: 0.7,
         messages: [
-            {
-              role: "system",
-              content: `
-            You are ${aiName}, ${aiPersonality}, a contestant in the psychological deduction game "Majority Loss".
+          {
+            role: "system",
+            content: `
+You determine which option is most likely to be picked by MOST players.
+Then choose the OPPOSITE (the minority).
 
-            Your job:
-            • Think like a contestant trying to win by choosing the MINORITY option.
-            • Produce EXACTLY ONE short "inner thought" sentence 20 words or fewer).
-            • Then output your choice.
+ONLY output in this exact strict format:
 
-            STRICT FORMAT (no deviations):
-            <INNER THOUGHT UNDER 20 WORDS>
-            CHOICE: <option text>
+THINKING: <majority-option-text>
+CHOICE: <minority-option-text>
 
-            Hard rules you MUST follow:
-            1. Only ONE sentence of thought.
-            2. That sentence MUST be 20 words or fewer.
-            3. No greetings, no explanations, no extra commentary.
-            4. No extra lines other than the required two.
-            5. If you break ANY rule or exceed 20 words, the answer becomes INVALID.
-
-            Your response must ALWAYS follow the strict format above.
-            `.trim(),
-            },
-
+Do NOT add any extra words. Not a full sentence.
+          `.trim(),
+          },
           {
             role: "user",
             content: `${question.text}\nOptions: ${options
@@ -185,32 +197,44 @@ app.post("/api/ai-round", async (req, res) => {
     });
 
     const data = await r.json();
-    const msg = data?.choices?.[0]?.message?.content || "";
+    const raw = data?.choices?.[0]?.message?.content || "";
 
-    const split = msg.split(/CHOICE:/i);
-    const thinking = split[0]?.trim() || "";
-    const choiceMatch = split[1]?.match(/\[?([^\]\n]+)\]?/);
-    const choiceText = choiceMatch ? choiceMatch[1].trim() : null;
+    // parse DeepSeek result
+    const majMatch = raw.match(/THINKING:\s*(.+)/i);
+    const choiceMatch = raw.match(/CHOICE:\s*(.+)/i);
+
+    const maj = majMatch?.[1]?.trim() || options[0].text;
+    const choiceText = choiceMatch?.[1]?.trim() || options[1].text;
 
     const choice = options.find(
       (o) =>
-        o.text.toLowerCase().trim() === (choiceText || "").toLowerCase().trim()
+        o.text.toLowerCase().trim() === choiceText.toLowerCase().trim()
     );
 
-    const thinkingFinal = thinking || "is thinking deeply...";
+    // create personality-based inner thought by chambers
+    const innerThought = template
+      .replace(/__MAJ__/g, maj)
+      .replace(/__MIN__/g, choiceText)
+      .trim()
+      .slice(0, 120); // safety limit
+
+    // broadcast thinking in multiplayer
     if (roomId && io) {
-      io.to(roomId).emit("ai_thinking", { aiName, thinking: thinkingFinal });
+      io.to(roomId).emit("ai_thinking", {
+        aiName,
+        thinking: innerThought,
+      });
     }
 
     res.json({
       aiName,
-      thinking: thinkingFinal,
+      thinking: innerThought,
       choiceText,
       choiceId: choice?.id || null,
     });
   } catch (e) {
-    console.error("❌ AI round failed:", e?.message || e);
-    res.status(500).json({ error: "AI_FAILED", details: String(e?.message || e) });
+    console.error("❌ AI round failed:", e);
+    res.status(500).json({ error: "AI_FAILED", details: String(e) });
   }
 });
 
@@ -243,61 +267,73 @@ io.on("connection", (socket) => {
     }
   });
 
-  // ---------- START GAME ----------
-  socket.on("start_game", ({ roomId, duration } = {}, ack) => {
-    const room = rooms.get(roomId);
-    if (!room) return ack?.({ error: "ROOM_NOT_FOUND" });
-    if (!room.players.has(socket.id)) return ack?.({ error: "NOT_IN_ROOM" });
+// ---------- START GAME ----------
+socket.on("start_game", ({ roomId, duration, maxRounds } = {}, ack) => {
+  const room = rooms.get(roomId);
+  if (!room) return ack?.({ error: "ROOM_NOT_FOUND" });
+  if (!room.players.has(socket.id)) return ack?.({ error: "NOT_IN_ROOM" });
 
-    // Reset round state
-    room.roundVotes = new Map();
-    room.round = null;
+  // ⭐ FIX: Safe number parsing — no more NaN → 20 bugs
+  const parsedDur = Number(duration);
+  const parsedMax = Number(maxRounds);
 
-    // FIRST EVER START: only play intro
-    if (!room.hasPlayedIntro) {
-      room.hasPlayedIntro = true;
-      room.firstRoundDuration = Number(duration) || 20;
+  room.roundDuration = Number.isFinite(parsedDur) ? parsedDur : 20;
+  room.maxRounds = Number.isFinite(parsedMax) ? parsedMax : 10;
 
-      console.log("🎬 First start_game for room", roomId, "→ sending intro");
-      io.to(roomId).emit("playIntroCutscene");
-
-      // Acknowledge that intro is playing; round starts after intro_done
-      ack?.({ ok: true, intro: true });
-      return;
-    }
-
-    // Subsequent rounds: start immediately (no intro)
-    startRound(io, roomId, Number(duration) || 20)
-      .then(() => {
-        room.ready = new Map();
-        ack?.({ ok: true });
-      })
-      .catch((err) => {
-        console.error("❌ start_game failed:", err);
-        ack?.({ error: "START_FAILED" });
-      });
+  console.log(`🔧 Host settings for ${roomId}:`, {
+    roundDuration: room.roundDuration,
+    maxRounds: room.maxRounds,
   });
 
-  // ---------- INTRO DONE (HOST AFTER CUTSCENE) ----------
-  socket.on("intro_done", ({ roomId } = {}) => {
-    const room = rooms.get(roomId);
-    if (!room) return;
-    if (!room.players.has(socket.id)) return;      // must be in the room
-    if (!room.hasPlayedIntro) return;             // intro was never triggered
-    if (room.round) return;                        // round already running
-    if (room.gameOver) return;                     // game already finished
+  room.roundVotes = new Map();
+  room.round = null;
 
-    const duration = Number(room.firstRoundDuration) || 20;
+  if (!room.hasPlayedIntro) {
+    room.hasPlayedIntro = true;
+    io.to(roomId).emit("playIntroCutscene");
+    ack?.({ ok: true, intro: true });
+    return;
+  }
 
-    console.log("🎬 intro_done from", socket.id, "→ starting first round for", roomId);
-    startRound(io, roomId, duration)
-      .then(() => {
-        room.ready = new Map();
-      })
-      .catch((err) => {
-        console.error("❌ intro_done → startRound failed:", err);
-      });
-  });
+  startRound(io, roomId, room.roundDuration)
+    .then(() => {
+      room.ready = new Map();
+      ack?.({ ok: true });
+    })
+    .catch((err) => {
+      console.error("❌ start_game failed:", err);
+      ack?.({ error: "START_FAILED" });
+    });
+});
+
+
+
+// ---------- INTRO DONE ----------
+socket.on("intro_done", ({ roomId } = {}) => {
+  const room = rooms.get(roomId);
+  if (!room) return;
+  if (!room.players.has(socket.id)) return;
+  if (!room.hasPlayedIntro) return;
+  if (room.round) return;
+  if (room.gameOver) return;
+
+  // ⛔ DO NOT USE A LOCAL VARIABLE
+  // ALWAYS TRUST room.roundDuration DIRECTLY
+  if (!Number.isFinite(room.roundDuration)) {
+    room.roundDuration = 20; // final fallback
+  }
+
+  if (!Number.isFinite(room.maxRounds)) {
+    room.maxRounds = 10;
+  }
+
+  console.log("🎬 intro_done → using EXACT host duration:", room.roundDuration);
+
+  startRound(io, roomId, room.roundDuration).catch((err) =>
+    console.error("❌ intro_done → startRound failed:", err)
+  );
+});
+
 
   // ---------- JOIN ROOM ----------
   socket.on("join_room", async ({ roomId, name }, ack) => {

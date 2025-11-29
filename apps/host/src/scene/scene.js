@@ -10,7 +10,6 @@ import { attachCutsceneCamera } from "../cutscenes/cutsceneCamera.js";
 import { cutsceneActive } from "../cutscenes/cutsceneCamera.js";
 import { AudioManager } from "../audio/audioManager.js";
 
-
 let scene, camera, renderer;
 const avatars = new Map(); // playerId -> THREE.Group
 const readyBadges = new Map(); // playerId -> { sprite, state }
@@ -42,22 +41,73 @@ const TOTAL_SEATS = 9;
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 
-export function hideCourtroomObjects() {
-  if (!scene) return;
-  scene.traverse((obj) => {
-    if (!obj.userData) obj.userData = {};
-    obj.userData._savedVisible = obj.visible;
-    obj.visible = false;
-  });
-}
+// Chalkboard meshes + textures
+const bannerMeshes = { left: null, center: null, right: null };
+const bannerTextures = { left: null, center: null, right: null };
+let bannerState = {
+  left: "",
+  center: "MAJORITY LOSS\n by Chambers Malouf",
+  right: "",
+};
 
-export function showCourtroomObjects() {
-  if (!scene) return;
-  scene.traverse((obj) => {
-    if (obj.userData && obj.userData._savedVisible !== undefined) {
-      obj.visible = obj.userData._savedVisible;
-    }
-  });
+// Chalk state for question / results / lobby / in-room
+let chalkMode = "idle"; // "idle" | "lobby" | "question" | "results" | "inroom";
+let chalkState = {
+  roomId: "------",
+  roundNumber: 1,
+  questionText: "",
+  options: [],
+  remaining: null,
+  myVoteOptionId: null,
+  onOptionClick: null,
+  optionBoxes: [],
+  winningOptionId: null,
+  counts: [],
+  leaderboard: [],
+};
+
+// In-room settings click handler
+let chalkInRoomHandlerAttached = false;
+let inRoomTapHandler = null;
+let onHostGameSettingsClick = null;
+
+// ================================
+// 🎨 HOST SETTINGS (CHALKBOARD)
+// ================================
+export function setChalkHostSettingsView(centerBoard, { roundTime, maxRounds }) {
+  if (!centerBoard || !centerBoard.context) return;
+
+  const ctx = centerBoard.context;
+
+  const w = ctx.canvas.width;
+  const h = ctx.canvas.height;
+  // Clear lower half only
+  ctx.clearRect(0, h * 0.45, w, h * 0.55);
+
+  ctx.fillStyle = "#f5e6c8";
+  ctx.font = "36px Chalk";
+  ctx.textAlign = "center";
+
+  ctx.fillText("⏳ Round Duration", w / 2, h * 0.55);
+
+  ctx.font = "48px Chalk";
+  ctx.fillText(`${roundTime}s`, w / 2, h * 0.62);
+
+  ctx.font = "60px Chalk";
+  ctx.fillText("ᐊ", w * 0.30, h * 0.62);
+  ctx.fillText("ᐅ", w * 0.70, h * 0.62);
+
+  ctx.font = "36px Chalk";
+  ctx.fillText("🔢 Max Rounds", w / 2, h * 0.72);
+
+  ctx.font = "48px Chalk";
+  ctx.fillText(`${maxRounds}`, w / 2, h * 0.79);
+
+  ctx.font = "60px Chalk";
+  ctx.fillText("ᐊ", w * 0.30, h * 0.79);
+  ctx.fillText("ᐅ", w * 0.70, h * 0.79);
+
+  centerBoard.texture.needsUpdate = true;
 }
 
 /* ------------------------------------------------------------------
@@ -72,24 +122,24 @@ export function playIntroFromScene(onFinish = () => {}) {
     return;
   }
 
-  // ⭐ AUDIO FIX — identical to solo mode
+  // AUDIO
   AudioManager.stopAll();
   AudioManager.play("intro");
 
   // Disable chalkboard / head movement during cutscene
-  renderer.domElement.style.pointerEvents = "none";
+  if (renderer?.domElement) {
+    renderer.domElement.style.pointerEvents = "none";
+  }
 
   console.log("🎬 Starting INTRO cutscene from scene.js");
 
   playIntroCutscene(() => {
-
-    // Stop intro music after cutscene
     AudioManager.stop("intro");
-
-    // Return to main game soundtrack
     AudioManager.play("main");
 
-    renderer.domElement.style.pointerEvents = "auto";
+    if (renderer?.domElement) {
+      renderer.domElement.style.pointerEvents = "auto";
+    }
     console.log("🎬 INTRO cutscene complete");
     onFinish();
   });
@@ -103,17 +153,20 @@ export function playWinnerFromScene(winnerName, onFinish = () => {}) {
     return;
   }
 
-  renderer.domElement.style.pointerEvents = "none";
+  if (renderer?.domElement) {
+    renderer.domElement.style.pointerEvents = "none";
+  }
 
   console.log("🏆 Starting WINNER cutscene from scene.js");
 
   playWinnerCutscene(winnerName, () => {
-    renderer.domElement.style.pointerEvents = "auto";
+    if (renderer?.domElement) {
+      renderer.domElement.style.pointerEvents = "auto";
+    }
     console.log("🏆 WINNER cutscene complete");
     onFinish();
   });
 }
-
 
 /* ------------------------------------------------------------------
    BADGE HELPERS
@@ -184,11 +237,9 @@ function makeSpeechBubbleTexture(text) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
 
-  // Background
   ctx.fillStyle = "rgba(15,23,42,0.92)";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // Rounded border
   ctx.strokeStyle = "#fefae0";
   ctx.lineWidth = 8;
   const r = 28;
@@ -209,7 +260,6 @@ function makeSpeechBubbleTexture(text) {
   ctx.closePath();
   ctx.stroke();
 
-  // Text
   ctx.fillStyle = "#f9fafb";
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
@@ -301,6 +351,7 @@ function updateOrientationOverlay() {
     document.body.appendChild(overlay);
   }
 }
+
 // Hide all avatars except the winner(s)
 export function hideNonWinners(winnerNames = []) {
   for (const [id, av] of avatars.entries()) {
@@ -317,7 +368,7 @@ export function hideNonWinners(winnerNames = []) {
 
 // Restore all avatars
 export function restoreAllAvatars() {
-  for (const [id, av] of avatars.entries()) {
+  for (const [, av] of avatars.entries()) {
     av.visible = true;
   }
 }
@@ -353,39 +404,16 @@ function onPointerUp(e) {
   if (!pointerDown) return;
   pointerDown = false;
 
-  const TAP_THRESHOLD_SQ = 12 * 12; // ~12px
+  const TAP_THRESHOLD_SQ = 12 * 12;
   if (dragDistanceSq <= TAP_THRESHOLD_SQ) {
+    // Question mode tap → option selection
     handleChalkClick(e);
   }
 }
 
-/* ------------------------------------------------------------------
-   CHALKBOARD BANNERS (left / center / right) — ★ PATCHED FOR LARGE TEXT ★
-------------------------------------------------------------------- */
-
-const bannerMeshes = { left: null, center: null, right: null };
-const bannerTextures = { left: null, center: null, right: null };
-let bannerState = {
-  left: "",
-  center: "MAJORITY LOSS\nTrial by Chambers Malouf",
-  right: "",
-};
-
-// Chalk state for question / results / lobby
-let chalkMode = "idle"; 
-let chalkState = {
-  roomId: "------",
-  roundNumber: 1,
-  questionText: "",
-  options: [],
-  remaining: null,
-  myVoteOptionId: null,
-  onOptionClick: null,
-  optionBoxes: [],
-  winningOptionId: null,
-  counts: [],
-  leaderboard: [],
-};
+/* -------------------------------------------------------------
+   BANNER TEXT DRAW
+------------------------------------------------------------- */
 
 function createBannerTexture(initialText = "") {
   const canvas = document.createElement("canvas");
@@ -411,14 +439,10 @@ function createBannerTexture(initialText = "") {
   return { canvas, ctx, tex };
 }
 
-/* -------------------------------------------------------------
-   ★ PATCHED BANNER TEXT — SEVERELY LARGER AUTO-SCALING ★
-------------------------------------------------------------- */
-
 function drawBannerText(ctx, canvas, text) {
   if (!text) return;
 
-  const marginX = canvas.width * 0.05;   // smaller margins = larger text
+  const marginX = canvas.width * 0.05;
   const marginY = canvas.height * 0.06;
   const maxWidth = canvas.width - marginX * 2;
   const maxHeight = canvas.height - marginY * 2;
@@ -429,9 +453,9 @@ function drawBannerText(ctx, canvas, text) {
 
   const paragraphs = text.split(/\n/);
 
-  let fontSize = 110;   // was 70 — now MUCH bigger
+  let fontSize = 110;
   let lines = [];
-  const lineHeightMult = 1.05;  // tighter packing
+  const lineHeightMult = 1.05;
   const minFont = 22;
 
   function wrapLines(size) {
@@ -479,7 +503,7 @@ function drawBannerText(ctx, canvas, text) {
 }
 
 /* =============================================================
-   ★ PATCHED QUESTION BOARD — EVERY FONT & BOX INCREASED ★
+   QUESTION BOARD
 ============================================================= */
 
 function drawQuestionBoard(ctx, canvas) {
@@ -496,6 +520,7 @@ function drawQuestionBoard(ctx, canvas) {
   grd.addColorStop(0, "#1f3a2b");
   grd.addColorStop(1, "#163024");
   ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, canvas.height, canvas.height);
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   ctx.strokeStyle = "#fefae0";
@@ -505,7 +530,6 @@ function drawQuestionBoard(ctx, canvas) {
   const marginX = canvas.width * 0.14;
   const headerY = canvas.height * 0.09;
 
-  // Header — MUCH BIGGER
   ctx.fillStyle = "#fefae0";
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
@@ -520,7 +544,6 @@ function drawQuestionBoard(ctx, canvas) {
     ctx.fillText(`${remaining}s`, canvas.width - marginX, headerY + 10);
   }
 
-  // QUESTION TEXT — MASSIVE
   const questionTopY = headerY + 140;
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
@@ -549,7 +572,6 @@ function drawQuestionBoard(ctx, canvas) {
     qY += qFont * 1.2;
   });
 
-  // Helper text — bigger & readable
   ctx.font = `italic 40px "Marker Felt", "Chalkboard", system-ui`;
   ctx.fillText(
     "Tap a box to choose.",
@@ -557,7 +579,6 @@ function drawQuestionBoard(ctx, canvas) {
     qY + 20
   );
 
-  // OPTIONS — MUCH BIGGER
   const startY = qY + 90;
   const boxWidth = canvas.width * 0.8;
   const boxHeight = 130;
@@ -587,7 +608,7 @@ function drawQuestionBoard(ctx, canvas) {
     const cx = x + innerMarginX;
     const cy = y + boxHeight / 2;
 
-    let oFont = 48;  // BIGGER
+    let oFont = 48;
     ctx.font = `bold ${oFont}px "Marker Felt", "Chalkboard", system-ui`;
 
     const words = opt.text.split(/\s+/);
@@ -632,7 +653,7 @@ function drawQuestionBoard(ctx, canvas) {
 }
 
 /* =============================================================
-   ★ PATCHED RESULTS BOARD — EVERYTHING BIGGER & CLEAR ★
+   RESULTS BOARD
 ============================================================= */
 
 function drawResultsBoard(ctx, canvas) {
@@ -662,7 +683,6 @@ function drawResultsBoard(ctx, canvas) {
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
 
-  // BIG header
   ctx.font = `bold 60px "Marker Felt", "Chalkboard", system-ui`;
   ctx.fillText(`Room ${roomId}`, marginX, canvas.height * 0.08);
   ctx.font = `bold 52px "Marker Felt", "Chalkboard", system-ui`;
@@ -672,7 +692,6 @@ function drawResultsBoard(ctx, canvas) {
     canvas.height * 0.08 + 66
   );
 
-  // QUESTION TEXT — Larger
   ctx.textAlign = "center";
   ctx.font = `bold 52px "Marker Felt", "Chalkboard", system-ui`;
   const qY = canvas.height * 0.23;
@@ -699,7 +718,6 @@ function drawResultsBoard(ctx, canvas) {
     curY += 58;
   });
 
-  // OPTIONS — Much bigger
   ctx.textAlign = "left";
   ctx.font = `bold 46px "Marker Felt", "Chalkboard", system-ui`;
   let optY = curY + 20;
@@ -710,7 +728,7 @@ function drawResultsBoard(ctx, canvas) {
     );
     const count = c ? c.count : 0;
     const isWinner = winningOptionId !== null &&
-                     Number(opt.id) === Number(winningOptionId);
+      Number(opt.id) === Number(winningOptionId);
 
     const votesWord = count === 1 ? "vote" : "votes";
     const label = isWinner ? "  ← WINNER" : "";
@@ -743,7 +761,6 @@ function drawResultsBoard(ctx, canvas) {
     optY += 46;
   });
 }
-
 
 function roundRect(ctx, x, y, w, h, r, fill, stroke) {
   if (typeof r === "number") {
@@ -886,7 +903,7 @@ export function setChalkResultsView({
 }
 
 /* ------------------------------------------------------------------
-   HANDLE CHALKBOARD CLICK → option selection
+   HANDLE CHALKBOARD CLICK → option selection (QUESTION MODE)
 ------------------------------------------------------------------- */
 
 function handleChalkClick(e) {
@@ -963,8 +980,6 @@ export function setChalkLobbyView({
     updateBanner("right");
   }
 
-  let editing = null; // "name" | "code" | null
-
   function onLobbyTap(e) {
     if (chalkMode !== "lobby") return;
 
@@ -986,7 +1001,6 @@ export function setChalkLobbyView({
     const mesh = hits[0].object;
 
     if (mesh === bannerMeshes.left) {
-      editing = "code";
       const newCode = prompt("Enter room code:", codeInput.value || "");
       if (newCode !== null)
         codeInput.value = newCode.toUpperCase().slice(0, 6);
@@ -995,7 +1009,6 @@ export function setChalkLobbyView({
     }
 
     if (mesh === bannerMeshes.right) {
-      editing = "name";
       const newName = prompt("Enter display name:", nameInput.value || "");
       if (newName !== null) nameInput.value = newName.slice(0, 18);
       updateLobbyBoards();
@@ -1013,19 +1026,52 @@ export function setChalkLobbyView({
     }
   }
 
-  renderer.domElement.addEventListener("pointerup", (e) => {
-    if (localStorage.getItem("inRoom") === "1") return;
-    onLobbyTap(e);
-  });
+  if (renderer?.domElement) {
+    renderer.domElement.addEventListener("pointerup", (e) => {
+      if (localStorage.getItem("inRoom") === "1") return;
+      onLobbyTap(e);
+    });
+  }
 
   updateLobbyBoards();
 
   return function cleanupLobby() {
-    if (renderer) {
-      renderer.domElement.removeEventListener("pointerup", onLobbyTap);
-    }
     chalkMode = "idle";
   };
+}
+
+/* ------------------------------------------------------------------
+   IN-ROOM: CENTER CHALKBOARD "GAME SETTINGS" CLICK
+------------------------------------------------------------------- */
+
+export function setChalkInRoomSettingsHandler({ onSettingsClick }) {
+  chalkMode = "inroom";
+  onHostGameSettingsClick =
+    typeof onSettingsClick === "function" ? onSettingsClick : null;
+
+  if (!renderer || !camera) return;
+  if (chalkInRoomHandlerAttached) return;
+
+  inRoomTapHandler = function (e) {
+    if (chalkMode !== "inroom") return;
+    if (!onHostGameSettingsClick) return;
+    if (!bannerMeshes.center) return;
+
+    const rect = renderer.domElement.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    pointer.set(x, y);
+    raycaster.setFromCamera(pointer, camera);
+
+    const hits = raycaster.intersectObject(bannerMeshes.center);
+    if (!hits.length) return;
+
+    // Click anywhere on center board → open settings modal
+    onHostGameSettingsClick();
+  };
+
+  renderer.domElement.addEventListener("pointerup", inRoomTapHandler);
+  chalkInRoomHandlerAttached = true;
 }
 
 /* ------------------------------------------------------------------
@@ -1056,8 +1102,6 @@ export function initScene(containerId = "table-app") {
   renderer.domElement.style.touchAction = "none";
   container.appendChild(renderer.domElement);
 
-  /* ---------------- CAMERA (behind players, facing judge) ---------------- */
-
   camera = new THREE.PerspectiveCamera(
     60,
     window.innerWidth / window.innerHeight,
@@ -1066,8 +1110,6 @@ export function initScene(containerId = "table-app") {
   );
   camera.position.set(0, 4, 0);
   camera.lookAt(0, 4, 10);
-
-  /* ---------------- LIGHTING ---------------- */
 
   const hemi = new THREE.HemisphereLight(0xffffff, 0xf5e7d0, 0.9);
   scene.add(hemi);
@@ -1095,8 +1137,6 @@ export function initScene(containerId = "table-app") {
   const fillRight = new THREE.PointLight(0xd6ecff, 0.7, 35);
   fillRight.position.set(12, 10, 4);
   scene.add(fillRight);
-
-  /* ---------------- FLOOR & WELL ---------------- */
 
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(34, 26),
@@ -1136,8 +1176,6 @@ export function initScene(containerId = "table-app") {
   wellTrim.receiveShadow = true;
   scene.add(wellTrim);
 
-  /* ---------------- RAIL ---------------- */
-
   const rail = new THREE.Mesh(
     new THREE.BoxGeometry(18, 0.7, 0.25),
     new THREE.MeshStandardMaterial({
@@ -1164,8 +1202,6 @@ export function initScene(containerId = "table-app") {
     post.receiveShadow = true;
     scene.add(post);
   }
-
-  /* ---------------- AUDIENCE BENCHES ---------------- */
 
   function createBench(x, z) {
     const bench = new THREE.Mesh(
@@ -1200,8 +1236,6 @@ export function initScene(containerId = "table-app") {
   createBench(-5.5, -7);
   createBench(5.5, -7);
 
-  /* ---------------- AUDIENCE ROBOTS ---------------- */
-
   function spawnAudienceRobot(x, z, rotationY = 0) {
     const bot = createAvatar("BOT");
     bot.scale.set(0.7, 0.7, 0.7);
@@ -1227,8 +1261,6 @@ export function initScene(containerId = "table-app") {
   spawnAudienceRobot(8.0, -6.0, 0);
   spawnAudienceRobot(5.5, -6.0, 0);
   spawnAudienceRobot(3.0, -6.0, 0);
-
-  /* ---------------- JUDGE PLATFORM & BENCH ---------------- */
 
   const judgePlatform = new THREE.Mesh(
     new THREE.BoxGeometry(18, 1.0, 4),
@@ -1291,8 +1323,6 @@ export function initScene(containerId = "table-app") {
   benchTop.castShadow = true;
   scene.add(benchTop);
 
-  /* ---------------- JUDGE ROBOT ---------------- */
-
   function spawnJudgeRobot() {
     const judge = createAvatar("JUDGE");
     judge.scale.set(0.7, 0.7, 0.7);
@@ -1302,8 +1332,6 @@ export function initScene(containerId = "table-app") {
   }
 
   spawnJudgeRobot();
-
-  /* ---------------- COURTROOM WALLS ---------------- */
 
   const frontWall = new THREE.Mesh(
     new THREE.PlaneGeometry(30, 12),
@@ -1386,14 +1414,10 @@ export function initScene(containerId = "table-app") {
   trimRight.position.set(15, 12.1, 0);
   scene.add(trimRight);
 
-  /* ---------------- CHALKBOARD BANNERS (create meshes) ---------------- */
-
   createBannerMesh("left", -7);
   createBannerMesh("center", 0);
   createBannerMesh("right", 7);
   updateBanner("center");
-
-  /* ---------------- INPUT & RESIZE ---------------- */
 
   renderer.domElement.addEventListener("pointerdown", onPointerDown);
   window.addEventListener("pointermove", onPointerMove);
@@ -1437,7 +1461,6 @@ export function setPlayersOnTable(players) {
   const limited = players.slice(0, TOTAL_SEATS);
   const currentIds = new Set(limited.map((p) => p.id));
 
-  // Remove missing avatars
   for (const [id, group] of avatars.entries()) {
     if (!currentIds.has(id)) {
       scene.remove(group);
@@ -1448,11 +1471,10 @@ export function setPlayersOnTable(players) {
   const total = limited.length;
   if (total === 0) return;
 
-  // Semi-circle parameters (centered at the red carpet)
   const radius = 4.0;
-  const centerZ = 4.5; // a bit in front of the rail, facing judge
+  const centerZ = 4.5;
   const baseY = 1.6;
-  const span = Math.PI * 0.6; // total angular span (~108°)
+  const span = Math.PI * 0.6;
 
   limited.forEach((p, idx) => {
     let group = avatars.get(p.id);
@@ -1462,20 +1484,19 @@ export function setPlayersOnTable(players) {
       scene.add(group);
     }
 
-    // Store info so solo mode can match AI names to avatars
     group.userData.playerName = p.name;
     group.userData.playerId = p.id;
 
     const t =
       total === 1
         ? 0
-        : -span / 2 + (span * idx) / (total - 1); // angle in radians
+        : -span / 2 + (span * idx) / (total - 1);
 
     const x = Math.sin(t) * radius;
-    const z = centerZ + Math.cos(t) * radius * 0.15; // slight arc in depth
+    const z = centerZ + Math.cos(t) * radius * 0.15;
 
     group.position.set(x, baseY, z);
-    group.rotation.y = 0; // they all face forward toward the judge / chalkboards
+    group.rotation.y = 0;
     group.castShadow = true;
     group.receiveShadow = true;
   });
@@ -1520,7 +1541,6 @@ export function updateReadyBadges(readyById = {}) {
 export function setAISpeechBubbles(aiVotes = []) {
   if (!scene) return;
 
-  // Hide any existing bubbles
   for (const info of speechBubbles.values()) {
     if (info.sprite) info.sprite.visible = false;
   }
@@ -1528,7 +1548,6 @@ export function setAISpeechBubbles(aiVotes = []) {
   aiVotes.forEach((v) => {
     if (!v || !v.aiName || !v.thinking) return;
 
-    // Find avatar whose name matches this AI
     let avatar = null;
     for (const group of avatars.values()) {
       if (group.userData.playerName === v.aiName) {
@@ -1546,7 +1565,7 @@ export function setAISpeechBubbles(aiVotes = []) {
       const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
       const sprite = new THREE.Sprite(mat);
       sprite.scale.set(5, 2.5, 1);
-      sprite.position.set(0, 7.5, 0); // above head
+      sprite.position.set(0, 7.5, 0);
       avatar.add(sprite);
 
       info = { sprite };
@@ -1590,16 +1609,12 @@ function updateCameraFollow() {
   const headAnchor =
     avatar.userData.headAnchor || avatar.userData.headGroup || avatar;
 
-  // Rotate avatar with yaw (left/right look)
   avatar.rotation.y = yaw;
 
-  // Clamp pitch (up/down look)
   const MAX_PITCH = 0.55;
   const MIN_PITCH = -0.35;
   headAnchor.rotation.x = THREE.MathUtils.clamp(pitch, MIN_PITCH, MAX_PITCH);
 
-  // *** IDENTICAL CAMERA FOR SOLO + MULTIPLAYER ***
-  // No overrides, no zoom-out, no special solo adjustments.
   const CAMERA_FORWARD = 0.25;
   const CAMERA_UP = 0.15;
 
@@ -1615,17 +1630,14 @@ function updateCameraFollow() {
 
   cam.position.lerp(camLocal, 0.35);
   cam.lookAt(lookLocal);
-
 }
 
-
 // ============================
-//   SOLO MODE — AI SEATING (FRONT BENCHES)
+//   SOLO MODE — AI SEATING
 // ============================
 export function placeSoloAI(aiNames = []) {
   if (!scene) return;
 
-  // Remove ALL avatars except the player
   for (const [id, model] of avatars.entries()) {
     if (id !== myPlayerId) {
       scene.remove(model);
@@ -1633,12 +1645,11 @@ export function placeSoloAI(aiNames = []) {
     }
   }
 
-  // Four fixed seating positions on the front benches
   const seats = [
-    { x: -7, z: 7 }, // left bench front
+    { x: -7, z: 7 },
     { x: -7, z: 4 },
-    { x:  7, z: 7 }, // right bench front
-    { x:  7, z: 4 }
+    { x: 7, z: 7 },
+    { x: 7, z: 4 },
   ];
 
   const me = avatars.get(myPlayerId);
@@ -1649,14 +1660,8 @@ export function placeSoloAI(aiNames = []) {
 
     const bot = createAvatar(name);
     bot.userData.playerName = name;
-
-    // Scale down 50%
     bot.scale.set(0.5, 0.5, 0.5);
-
-    // Position on benches
     bot.position.set(pos.x, 0.75, pos.z);
-
-    // Face the player
     if (me) bot.lookAt(me.position.x, 1.4, me.position.z);
 
     avatars.set(name, bot);
@@ -1674,12 +1679,10 @@ function animate() {
 
   const t = clock.getElapsedTime();
 
-  // Subtle float on avatars
   for (const [id, avatar] of avatars.entries()) {
     avatar.position.y = 1.6 + Math.sin(t * 2 + id.length) * 0.04;
   }
 
-  // Billboard all speech bubbles toward camera
   for (const info of speechBubbles.values()) {
     if (info.sprite && info.sprite.visible) {
       info.sprite.quaternion.copy(camera.quaternion);

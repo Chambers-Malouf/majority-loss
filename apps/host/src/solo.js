@@ -22,8 +22,8 @@ const HTTP_BASE = SOCKET_URL
   ? SOCKET_URL.replace(/^wss:\/\//, "https://").replace(/^ws:\/\//, "http://")
   : window.location.origin;
 
-const SOLO_MAX_ROUNDS = 1;
-const SOLO_TIMER_SECONDS = 4;
+const SOLO_MAX_ROUNDS = 5;
+const SOLO_TIMER_SECONDS = 60;
 
 // ======== 4 AI PERSONALITIES ========
 const AI_LIST = [
