@@ -238,8 +238,8 @@ export async function playWinnerCutscene(winnerNames, onFinish = () => {}) {
 
   sub.innerText =
     winnerNames.length === 1
-      ? "I AM THE WINNER"
-      : "WE ARE THE WINNERS";
+      ? "I AM A ROBOT"
+      : "WE ARE CERTIFIED ROBOTS";
 
   /* ---------- WINNERS ---------- */
   const groups = [];

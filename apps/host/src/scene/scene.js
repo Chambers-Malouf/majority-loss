@@ -8,6 +8,7 @@ import { playIntroCutscene } from "../cutscenes/introCutscene.js";
 import { playWinnerCutscene } from "../cutscenes/winnerCutscene.js";
 import { attachCutsceneCamera } from "../cutscenes/cutsceneCamera.js";
 import { cutsceneActive } from "../cutscenes/cutsceneCamera.js";
+import { AudioManager } from "../audio/audioManager.js";
 
 
 let scene, camera, renderer;
@@ -35,7 +36,7 @@ let loggedCameraAttached = false;
 const ORIENTATION_OVERLAY_ID = "orientation-overlay";
 
 // Fixed max seats at the well (you + 4 others)
-const TOTAL_SEATS = 5;
+const TOTAL_SEATS = 9;
 
 // Raycaster for chalkboard clicks
 const raycaster = new THREE.Raycaster();
@@ -71,12 +72,23 @@ export function playIntroFromScene(onFinish = () => {}) {
     return;
   }
 
+  // ⭐ AUDIO FIX — identical to solo mode
+  AudioManager.stopAll();
+  AudioManager.play("intro");
+
   // Disable chalkboard / head movement during cutscene
   renderer.domElement.style.pointerEvents = "none";
 
   console.log("🎬 Starting INTRO cutscene from scene.js");
 
   playIntroCutscene(() => {
+
+    // Stop intro music after cutscene
+    AudioManager.stop("intro");
+
+    // Return to main game soundtrack
+    AudioManager.play("main");
+
     renderer.domElement.style.pointerEvents = "auto";
     console.log("🎬 INTRO cutscene complete");
     onFinish();

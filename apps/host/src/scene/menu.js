@@ -333,6 +333,7 @@ export function initMainMenuScene(
     type: "title",
     title: "MAJORITY LOSS",
     subtitle: "by Chambers Malouf",
+    subtitle: "INFO",
     bgColor: "#facc15",
     accentColor: "#ef4444",
   });
@@ -525,7 +526,7 @@ function animate() {
       data.stopTimer -= dt;
       bot.rotation.y = Math.sin(t * 1.2 + data.phase) * 0.3;
     } else {
-      bot.position.x += data.direction * data.speed * dt;
+       bot.position.x += data.direction * data.speed * dt;
       if (bot.position.x < data.minX) {
         bot.position.x = data.minX;
         data.direction *= -1;

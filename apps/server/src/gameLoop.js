@@ -2,7 +2,7 @@
 import { rooms } from "./rooms.js";
 import { getRandomQuestionWithOptions } from "./questions.js";
 
-const MAX_ROUNDS = 10; // hard cap: round limit
+const MAX_ROUNDS = 1 ; 
 
 // Helper: build sorted leaderboard from room.players
 function buildLeaderboard(room) {
@@ -63,7 +63,7 @@ function endGame(io, roomId, reason = "unknown") {
   }
 }
 
-export async function startRound(io, roomId, durationSec = 20) {
+export async function startRound(io, roomId, durationSec = 5) {
   const room = rooms.get(roomId);
   if (!room) return;
 

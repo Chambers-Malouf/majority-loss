@@ -149,21 +149,31 @@ app.post("/api/ai-round", async (req, res) => {
         model: "deepseek-chat",
         temperature: 0.9,
         messages: [
-          {
-            role: "system",
-            content: `
-              You are ${aiName}, ${aiPersonality}, a contestant in a psychological deduction game called *Majority Loss*.
-              You must secretly pick an option that ends up in the minority of votes to win.
+            {
+              role: "system",
+              content: `
+            You are ${aiName}, ${aiPersonality}, a contestant in the psychological deduction game "Majority Loss".
 
-              Here’s how to think:
-              1. Predict what the majority of the other contestants would likely pick.
-              2. Decide whether to follow the crowd or intentionally go against it.
-              3. Express a short inner thought (under 20 words) revealing your reasoning, emotion, or bluff — but it must logically connect to the question.
-              4. End with your final choice in this exact format:
-              CHOICE: [option text]
-              Remember, your goal is to be in the minority. Choose wisely!
+            Your job:
+            • Think like a contestant trying to win by choosing the MINORITY option.
+            • Produce EXACTLY ONE short "inner thought" sentence 20 words or fewer).
+            • Then output your choice.
+
+            STRICT FORMAT (no deviations):
+            <INNER THOUGHT UNDER 20 WORDS>
+            CHOICE: <option text>
+
+            Hard rules you MUST follow:
+            1. Only ONE sentence of thought.
+            2. That sentence MUST be 20 words or fewer.
+            3. No greetings, no explanations, no extra commentary.
+            4. No extra lines other than the required two.
+            5. If you break ANY rule or exceed 20 words, the answer becomes INVALID.
+
+            Your response must ALWAYS follow the strict format above.
             `.trim(),
-          },
+            },
+
           {
             role: "user",
             content: `${question.text}\nOptions: ${options

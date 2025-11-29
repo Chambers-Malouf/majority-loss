@@ -5,9 +5,10 @@ import { moveCameraTo, stopCutscene } from "./cutsceneCamera.js";
 const judgeLines = [
   "Attention robots...",
   "You five stand on trial under suspicion of being HUMAN.",
-  "You will answer 10 questions.",
-  "Each round, you must match the MINORITY answer to survive.",
-  "The one with the highest score will be declared a true robot.",
+  "You will answer 5 questions.",
+  "Each round, you must answer along with the MINORITY to receive a point.",
+  "If you are in the minority you will receive a point",
+  "The one with the most points once the game is over will be declared a true robot.",
   "Good luck. Your trial begins now..."
 ];
 
@@ -43,7 +44,7 @@ export async function playIntroCutscene(onFinish = () => {}) {
 
   for (const line of judgeLines) {
     box.innerText = line;
-    await new Promise((r) => setTimeout(r, 1600));
+    await new Promise((r) => setTimeout(r, 4500));
   }
 
   // Remove overlay

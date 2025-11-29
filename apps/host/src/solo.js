@@ -23,7 +23,7 @@ const HTTP_BASE = SOCKET_URL
   : window.location.origin;
 
 const SOLO_MAX_ROUNDS = 1;
-const SOLO_TIMER_SECONDS = 5;
+const SOLO_TIMER_SECONDS = 4;
 
 // ======== 4 AI PERSONALITIES ========
 const AI_LIST = [
@@ -377,5 +377,5 @@ async function showSoloGameOver() {
 
   localStorage.removeItem("soloMode");
 
-  await wait(6000);
+  await wait(4500);
 }
