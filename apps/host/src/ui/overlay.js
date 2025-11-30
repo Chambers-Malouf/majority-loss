@@ -453,6 +453,7 @@ export function renderGameOverOverlay({ roomId, leaderboard, onBackToLobby }) {
   setCourtroomBanner(
     `Game Over — Room ${roomId}`,
     "MAJORITY LOSS\nTrial by Chambers Malouf",
+    "Refresh tab to leave or play again",
     summary
   );
 

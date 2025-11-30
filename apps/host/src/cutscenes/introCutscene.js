@@ -2,18 +2,12 @@
 import * as THREE from "three";
 import { moveCameraTo, stopCutscene } from "./cutsceneCamera.js";
 
-const judgeLines = [
-  "Attention robots...",
-  "You five stand on trial under suspicion of being HUMAN.",
-  "You will answer 5 questions.",
-  "Each round, you must answer along with the MINORITY to receive a point.",
-  "If you are in the minority you will receive a point",
-  "The one with the most points once the game is over will be declared a true robot.",
-  "Only the true robot that wins this game will be set free",
-  "Good luck. Your trial begins now..."
-];
-
-export async function playIntroCutscene(onFinish = () => {}) {
+/**
+ * We now accept roundCount as a parameter.
+ * This allows us to customize the judge's dialogue.
+ */
+export async function playIntroCutscene(roundCount = 5, onFinish = () => {}) {
+  console.log("🎯 Cutscene received roundCount =", roundCount);
   console.log("🎥 Playing INTRO cutscene");
 
   const cam = window.__majorityCamera;  // set in scene.js
@@ -29,6 +23,18 @@ export async function playIntroCutscene(onFinish = () => {}) {
     new THREE.Vector3(0, 3.8, 11.4),     // look at judge
     2.2
   );
+
+  // --- UPDATED DYNAMIC DIALOGUE ---
+  const judgeLines = [
+    "Attention robots...",
+    "You five stand on trial under suspicion of being HUMAN.",
+    `You will answer ${roundCount} questions.`, 
+    "Each round, you must answer along with the MINORITY to receive a point.",
+    "If you are in the minority you will receive a point.",
+    "The one with the most points once the game is over will be declared a true robot.",
+    "Only the true robot that wins this game will be set free.",
+    "Good luck. Your trial begins now..."
+  ];
 
   // 3. Dialogue subtitles overlay
   const box = document.createElement("div");

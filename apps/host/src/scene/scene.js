@@ -115,6 +115,7 @@ export function setChalkHostSettingsView(centerBoard, { roundTime, maxRounds }) 
 ------------------------------------------------------------------- */
 
 // Solo or Multiplayer: BEFORE first question
+// Solo or Multiplayer: BEFORE first question
 export function playIntroFromScene(onFinish = () => {}) {
   if (!camera) {
     console.warn("⚠️ No camera available for intro cutscene");
@@ -133,17 +134,29 @@ export function playIntroFromScene(onFinish = () => {}) {
 
   console.log("🎬 Starting INTRO cutscene from scene.js");
 
-  playIntroCutscene(() => {
-    AudioManager.stop("intro");
-    AudioManager.play("main");
+  // ⭐ PULL THE REAL ROUND COUNT
+  const roundCount = window.__maxRounds || 5;
 
-    if (renderer?.domElement) {
-      renderer.domElement.style.pointerEvents = "auto";
+  console.log("🎯 window.__maxRounds =", window.__maxRounds);
+  console.log("🎯 Using roundCount =", roundCount);
+
+  // Correct call
+  playIntroCutscene(
+    roundCount,           // <-- NOW CORRECT
+    () => {
+      AudioManager.stop("intro");
+      AudioManager.play("main");
+
+      if (renderer?.domElement) {
+        renderer.domElement.style.pointerEvents = "auto";
+      }
+      console.log("🎬 INTRO cutscene complete");
+      onFinish();
     }
-    console.log("🎬 INTRO cutscene complete");
-    onFinish();
-  });
+  );
 }
+
+
 
 // End of game: winner animation
 export function playWinnerFromScene(winnerName, onFinish = () => {}) {
@@ -1237,7 +1250,7 @@ export function initScene(containerId = "table-app") {
   createBench(5.5, -7);
 
   function spawnAudienceRobot(x, z, rotationY = 0) {
-    const bot = createAvatar("BOT");
+    const bot = createAvatar("JURY");
     bot.scale.set(0.7, 0.7, 0.7);
     bot.position.set(x, 0.75, z);
     bot.rotation.y = rotationY;
@@ -1326,7 +1339,7 @@ export function initScene(containerId = "table-app") {
   function spawnJudgeRobot() {
     const judge = createAvatar("JUDGE");
     judge.scale.set(0.7, 0.7, 0.7);
-    judge.position.set(0, 1, 11.4);
+    judge.position.set(0, 1, 10.4);
     judge.rotation.y = Math.PI;
     scene.add(judge);
   }
@@ -1479,7 +1492,7 @@ export function setPlayersOnTable(players) {
   limited.forEach((p, idx) => {
     let group = avatars.get(p.id);
     if (!group) {
-      group = createAvatar(p.name || "BOT");
+      group = createAvatar(p.name || "JURY");
       avatars.set(p.id, group);
       scene.add(group);
     }
