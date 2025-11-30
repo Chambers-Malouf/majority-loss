@@ -238,6 +238,37 @@ Do NOT add any extra words. Not a full sentence.
     res.status(500).json({ error: "AI_FAILED", details: String(e) });
   }
 });
+// ===================================================
+// ============= SOLO QUESTION ENDPOINT ==============
+// ===================================================
+app.get("/api/solo/question", async (req, res) => {
+  try {
+    // Get a random question + options from your questions.js helper
+    const q = await getRandomQuestionWithOptions();
+
+    if (!q) {
+      return res.status(500).json({
+        error: "NO_QUESTION",
+      });
+    }
+
+    // Format the response in the exact structure solo.js expects
+    res.json({
+      ok: true,
+      question: {
+        id: q.id,
+        text: q.text,
+      },
+      options: q.options.map((opt) => ({
+        id: opt.id,
+        text: opt.text,
+      })),
+    });
+  } catch (err) {
+    console.error("❌ /api/solo/question failed:", err);
+    res.status(500).json({ ok: false, error: "SERVER_ERROR" });
+  }
+});
 
 // ===================================================
 // ================= SOCKET SETUP ====================
