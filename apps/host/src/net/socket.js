@@ -1,5 +1,6 @@
 // apps/host/src/net/socket.js
 import { io } from "socket.io-client";
+console.log("🔎 socket.js VITE SOCKET:", import.meta.env.VITE_SOCKET_URL);
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
 

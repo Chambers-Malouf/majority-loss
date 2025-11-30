@@ -1,5 +1,8 @@
 // apps/host/src/solo.js
 console.log("🧠 solo.js loaded — SOLO MODE vs 4 AI");
+console.log("🔎 VITE SOCKET:", import.meta.env.VITE_SOCKET_URL);
+console.log("🔎 VITE HTTP:", import.meta.env.VITE_HTTP_URL);
+
 
 // ⭐ AUDIO MANAGER
 import { AudioManager } from "./audio/audioManager.js";
@@ -18,9 +21,11 @@ import {
 import { setMyPlayerId } from "./state.js";
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
-const HTTP_BASE = SOCKET_URL
-  ? SOCKET_URL.replace(/^wss:\/\//, "https://").replace(/^ws:\/\//, "http://")
-  : window.location.origin;
+const HTTP_BASE =
+  import.meta.env.VITE_HTTP_URL ||
+  SOCKET_URL?.replace(/^wss:\/\//, "https://") ||
+  window.location.origin;
+
 
 const SOLO_MAX_ROUNDS = 5;
 const SOLO_TIMER_SECONDS = 60;
