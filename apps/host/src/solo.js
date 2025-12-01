@@ -20,15 +20,16 @@ import {
 } from "./scene/scene.js";
 import { setMyPlayerId } from "./state.js";
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
-const HTTP_BASE =
-  import.meta.env.VITE_HTTP_URL ||
-  SOCKET_URL?.replace(/^wss:\/\//, "https://") ||
-  window.location.origin;
+  const HTTP_BASE =
+    import.meta.env.VITE_HTTP_URL ||
+    (SOCKET_URL
+      ? SOCKET_URL.replace(/^wss:\/\//, "https://").replace(/^ws:\/\//, "http://")
+      : window.location.origin);
+
 
 
 const SOLO_MAX_ROUNDS = 5;
-const SOLO_TIMER_SECONDS = 60;
+const SOLO_TIMER_SECONDS = 40;
 
 // ======== 4 AI PERSONALITIES ========
 const AI_LIST = [
@@ -156,10 +157,10 @@ async function soloGetAIVote(ai, question, options) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         aiName: ai.name,
-        aiPersonality: ai.personality,
+        aiPersonality: ai.personality,  
         question,
         options,
-        roomId: null,
+        roomId: null,                  
       }),
     });
 
@@ -169,18 +170,19 @@ async function soloGetAIVote(ai, question, options) {
 
     return {
       aiName: ai.name,
-      thinking: data?.thinking || "…",
-      optionId: data?.choiceId ?? null,
+      thinking: data?.thinking || "…",   // text DeepSeek generated
+      optionId: data?.choiceId ?? null,  // DeepSeek’s chosen option
     };
   } catch (err) {
     console.error("AI error:", ai.name, err);
     return {
       aiName: ai.name,
-      thinking: "…",
+      thinking: "…",     // fallback if request fails
       optionId: null,
     };
   }
 }
+
 
 // ===============================================================
 //                   SOLO ROUND LOOP
@@ -277,7 +279,7 @@ async function runNextSoloRound(playerName) {
   for (const v of aiVotesRaw) {
     if (!v) continue;
 
-    const exists = options.some((o) => Number(o.id) === Number(v.optionoptionId));
+    const exists = options.some((o) => Number(o.id) === Number(v.optionId));
     const id = exists ? v.optionId : options[0].id;
 
     addVote(id);
