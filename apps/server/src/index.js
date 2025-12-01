@@ -118,50 +118,16 @@ let io;
 
 app.post("/api/ai-round", async (req, res) => {
   const { question, options, aiName, aiPersonality, roomId } = req.body || {};
-  if (!question?.text || !Array.isArray(options)) {
+  if (!question?.text || !Array.isArray(options) || options.length === 0) {
     return res.status(400).json({ error: "BAD_INPUT" });
   }
 
-  // ---------- PERSONALITY-STYLE LIBRARY ----------
-  const thoughtStyles = {
-    "calm": [
-      "I think most will choose __MAJ__, so picking __MIN__ gives me an edge.",
-      "Quiet logic says the crowd favors __MAJ__, so I’ll lean toward __MIN__.",
-      "Most people go with __MAJ__, so __MIN__ is safer."
-    ],
-    "chaotic": [
-      "Chaos calls me to reject __MAJ__ and dive into __MIN__.",
-      "Instinct screams avoid __MAJ__; choosing __MIN__ feels thrilling.",
-      "I crave the minority, so I’ll oppose the herd choosing __MAJ__ and take __MIN__."
-    ],
-    "strategic": [
-      "Statistically most pick __MAJ__, meaning __MIN__ wins.",
-      "Majority logic: __MAJ__ dominates, so __MIN__ is optimal.",
-      "People bias toward __MAJ__, so I’ll take __MIN__."
-    ],
-    "sarcastic": [
-      "Everyone will obviously choose __MAJ__, so I guess I’m stuck choosing __MIN__.",
-      "The crowd loves __MAJ__; fine, I’ll go with __MIN__.",
-      "Let them pick __MAJ__; I’ll quietly take __MIN__."
-    ],
-    "dramatic": [
-      "The masses will flock to __MAJ__, so I embrace the lonely path of __MIN__.",
-      "They chase __MAJ__, but destiny pulls me toward __MIN__.",
-      "The herd seeks __MAJ__; I choose the shadowed minority of __MIN__."
-    ]
-  };
-
-  // pick a style based on personality, fallback random
-  const styleKey =
-    (aiPersonality && thoughtStyles[aiPersonality.toLowerCase()]) ?
-      aiPersonality.toLowerCase() :
-      Object.keys(thoughtStyles)[Math.floor(Math.random() * 5)];
-
-  const styleArray = thoughtStyles[styleKey];
-  const template = styleArray[Math.floor(Math.random() * styleArray.length)];
+  // Build a numbered list for the model
+  const optionsForPrompt = options
+    .map((o) => `${o.id}: ${o.text}`)
+    .join("\n");
 
   try {
-    // Ask DeepSeek ONLY for minority choice (not the thought text)
     const r = await fetch("https://api.deepseek.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -170,27 +136,42 @@ app.post("/api/ai-round", async (req, res) => {
       },
       body: JSON.stringify({
         model: "deepseek-chat",
-        temperature: 0.7,
+        temperature: 0.85, // a bit more chaos so different AIs diverge
         messages: [
           {
             role: "system",
             content: `
-You determine which option is most likely to be picked by MOST players.
-Then choose the OPPOSITE (the minority).
+You are ${aiName}.
+${aiPersonality}
 
-ONLY output in this exact strict format:
+You are playing a psychological voting game called "Majority Loss":
+- Each round, all players vote for ONE option.
+- The players who picked the MINORITY option (fewest votes) "win" that round.
+- Your goal is to think about what the MAJORITY will pick, then choose a DIFFERENT option.
 
-THINKING: <majority-option-text>
-CHOICE: <minority-option-text>
+You will be given:
+- A question
+- A list of numbered options: "<id>: <text>"
 
-Do NOT add any extra words. Not a full sentence.
-          `.trim(),
+RESPOND **IN THIS EXACT FORMAT**:
+
+THINKING: <one short, in-character sentence about your reasoning>
+CHOICE_ID: <numeric id of the option you choose>
+
+Rules:
+- THINKING must be <= 1 short sentence, in-character.
+- CHOICE_ID must be one of the ids given in the list.
+- Do NOT add any extra lines, labels, apologies, or commentary.
+        `.trim(),
           },
           {
             role: "user",
-            content: `${question.text}\nOptions: ${options
-              .map((o) => o.text)
-              .join(", ")}`,
+            content: `
+Question: ${question.text}
+
+Options:
+${optionsForPrompt}
+          `.trim(),
           },
         ],
       }),
@@ -198,27 +179,34 @@ Do NOT add any extra words. Not a full sentence.
 
     const data = await r.json();
     const raw = data?.choices?.[0]?.message?.content || "";
+    console.log("🤖 Raw DeepSeek reply for", aiName, "→", raw);
 
-    // parse DeepSeek result
-    const majMatch = raw.match(/THINKING:\s*(.+)/i);
-    const choiceMatch = raw.match(/CHOICE:\s*(.+)/i);
+    // Parse THINKING and CHOICE_ID
+    const thinkingMatch = raw.match(/THINKING:\s*(.+)/i);
+    const idMatch = raw.match(/CHOICE_ID:\s*(\d+)/i);
 
-    const maj = majMatch?.[1]?.trim() || options[0].text;
-    const choiceText = choiceMatch?.[1]?.trim() || options[1].text;
+    const thinkingRaw = (thinkingMatch?.[1] || "").trim();
+    const choiceIdFromModel = idMatch ? Number(idMatch[1]) : null;
 
-    const choice = options.find(
-      (o) =>
-        o.text.toLowerCase().trim() === choiceText.toLowerCase().trim()
-    );
+    // Find the matching option by id, or fall back to a random option
+    let selectedOption = null;
+    if (
+      Number.isFinite(choiceIdFromModel) &&
+      options.some((o) => Number(o.id) === choiceIdFromModel)
+    ) {
+      selectedOption = options.find(
+        (o) => Number(o.id) === choiceIdFromModel
+      );
+    } else {
+      // Fallback: random option (so it's not always the first)
+      selectedOption =
+        options[Math.floor(Math.random() * options.length)];
+    }
 
-    // create personality-based inner thought by chambers
-    const innerThought = template
-      .replace(/__MAJ__/g, maj)
-      .replace(/__MIN__/g, choiceText)
-      .trim()
-      .slice(0, 120); // safety limit
+    const innerThought =
+      (thinkingRaw || `${aiName} is thinking...`).slice(0, 160);
 
-    // broadcast thinking in multiplayer
+    // Broadcast thinking in multiplayer (if you ever hook AI into that)
     if (roomId && io) {
       io.to(roomId).emit("ai_thinking", {
         aiName,
@@ -226,17 +214,20 @@ Do NOT add any extra words. Not a full sentence.
       });
     }
 
-    res.json({
+    return res.json({
       aiName,
-      thinking: innerThought,
-      choiceText,
-      choiceId: choice?.id || null,
+      thinking: innerThought,          // goes into speech bubbles
+      choiceText: selectedOption.text, // mostly for debugging
+      choiceId: selectedOption.id,     // THIS is what solo.js uses
     });
   } catch (e) {
     console.error("❌ AI round failed:", e);
-    res.status(500).json({ error: "AI_FAILED", details: String(e) });
+    return res
+      .status(500)
+      .json({ error: "AI_FAILED", details: String(e) });
   }
 });
+
 // ===================================================
 // ============= SOLO QUESTION ENDPOINT ==============
 // ===================================================
