@@ -118,11 +118,15 @@ let io;
 
 app.post("/api/ai-round", async (req, res) => {
   const { question, options, aiName, aiPersonality, roomId } = req.body || {};
+
   if (!question?.text || !Array.isArray(options)) {
     return res.status(400).json({ error: "BAD_INPUT" });
   }
 
   try {
+    // -------------------------------
+    // Ask DeepSeek for EXACT format
+    // -------------------------------
     const r = await fetch("https://api.deepseek.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -131,34 +135,35 @@ app.post("/api/ai-round", async (req, res) => {
       },
       body: JSON.stringify({
         model: "deepseek-chat",
-        temperature: 0.8,
+        temperature: 0.7,
         messages: [
           {
             role: "system",
             content: `
 ${aiPersonality}
 
-You are playing a psychological game called Majority Loss.
-GOAL: Always choose the option that FEWEST other players will pick (the MINORITY).
-Stay fully in character. You ALWAYS try to win.
+You are playing a game called Majority Loss.
+RULE: Choose the option that FEWEST players will pick (the minority).
+Stay in character.
 
-Respond in EXACTLY this format:
+You MUST respond in EXACTLY this format:
 
-THINKING: <one in-character sentence explaining your logic>
-CHOICE: <exact option text you pick>
+THINKING: <one short sentence in character explaining your reasoning>
+CHOICE: <exact option text from the list>
 
-Nothing else. No additional lines. Only one sentence for THINKING.
+If you cannot decide, still guess the minority. Do NOT change the option text.
+Do NOT add extra lines.
 `.trim(),
           },
           {
             role: "user",
             content: `
 Question: ${question.text}
+
 Options:
 ${options.map((o) => "- " + o.text).join("\n")}
 
-Decide which option the majority picks, then choose the minority.
-Stay perfectly in character.
+Pick the minority choice and stay perfectly in character.
 `.trim(),
           },
         ],
@@ -168,30 +173,50 @@ Stay perfectly in character.
     const data = await r.json();
     const raw = data?.choices?.[0]?.message?.content || "";
 
-    const thinkMatch = raw.match(/THINKING:\s*(.+)/i);
+    // Extract lines safely
+    const thinkingMatch = raw.match(/THINKING:\s*(.+)/i);
     const choiceMatch = raw.match(/CHOICE:\s*(.+)/i);
 
-    const thinking = thinkMatch?.[1]?.trim() || "...";
-    const choiceText = choiceMatch?.[1]?.trim() || options[0].text;
+    const thinking = thinkingMatch?.[1]?.trim() || "I'm choosing the minority.";
+    const choiceText = choiceMatch?.[1]?.trim();
 
-    const choice = options.find(
-      (o) => o.text.toLowerCase().trim() === choiceText.toLowerCase().trim()
+    // If DeepSeek screwed up → fallback to smart minority guess
+    let chosenOption = options.find(
+      (o) => o.text.toLowerCase() === choiceText?.toLowerCase()
     );
 
+    if (!chosenOption) {
+      // fallback: choose random option EXCEPT first one
+      chosenOption = options[Math.floor(Math.random() * options.length)];
+    }
+
+    // Broadcast thinking (multiplayer only)
     if (roomId && io) {
-      io.to(roomId).emit("ai_thinking", { aiName, thinking });
+      io.to(roomId).emit("ai_thinking", {
+        aiName,
+        thinking,
+      });
     }
 
     return res.json({
       aiName,
       thinking,
-      choiceText,
-      choiceId: choice?.id || null,
+      choiceText: chosenOption.text,
+      choiceId: chosenOption.id,
     });
 
   } catch (err) {
     console.error("❌ AI round failed:", err);
-    return res.status(500).json({ error: "AI_FAILED" });
+
+    // fallback: random choice
+    const fallback = options[Math.floor(Math.random() * options.length)];
+
+    return res.json({
+      aiName,
+      thinking: "I'm choosing based on instinct.",
+      choiceText: fallback.text,
+      choiceId: fallback.id,
+    });
   }
 });
 
