@@ -169,6 +169,7 @@ Pick ONLY the minority answer by index.
 
     const data = await r.json();
     const raw = data?.choices?.[0]?.message?.content || "";
+    console.log("🔍 RAW AI RESPONSE:", JSON.stringify(raw, null, 2));
 
     const thinkingMatch = raw.match(/THINKING:\s*(.+)/i);
     const indexMatch = raw.match(/CHOICE:\s*(\d+)/i);
