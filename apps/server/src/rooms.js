@@ -37,6 +37,7 @@ export async function createRoomWithGame() {
     roundNumber: 0,
     timer: null,
     endAt: null,
+    usedQuestionIds: new Set(),
   });
 
   return { roomId, gameId: game.id };

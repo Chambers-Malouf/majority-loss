@@ -17,8 +17,8 @@ import {
 } from "./rooms.js";
 import { addPlayer } from "./db.js";
 import { startRound } from "./gameLoop.js";
+const usedSoloQuestions = new Set();
 
-// Polyfill fetch if needed (Render / Node 18 safety)
 if (typeof fetch === "undefined") {
   global.fetch = (await import("node-fetch")).default;
 }
@@ -124,9 +124,7 @@ app.post("/api/ai-round", async (req, res) => {
   }
 
   try {
-    // -------------------------------
-    // Ask DeepSeek for EXACT format
-    // -------------------------------
+    // Tell DeepSeek to return indexes ONLY
     const r = await fetch("https://api.deepseek.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -142,17 +140,16 @@ app.post("/api/ai-round", async (req, res) => {
             content: `
 ${aiPersonality}
 
-You are playing a game called Majority Loss.
+You are playing Majority Loss.
 RULE: Choose the option that FEWEST players will pick (the minority).
-Stay in character.
 
 You MUST respond in EXACTLY this format:
 
-THINKING: <one short sentence in character explaining your reasoning>
-CHOICE: <exact option text from the list>
+THINKING: <one short sentence>
+CHOICE: <number>
 
-If you cannot decide, still guess the minority. Do NOT change the option text.
-Do NOT add extra lines.
+Where <number> is the INDEX (0, 1, 2...) of the chosen option.
+Do NOT return the text. Do NOT add extra lines.
 `.trim(),
           },
           {
@@ -161,9 +158,9 @@ Do NOT add extra lines.
 Question: ${question.text}
 
 Options:
-${options.map((o) => "- " + o.text).join("\n")}
+${options.map((o, i) => `${i}: ${o.text}`).join("\n")}
 
-Pick the minority choice and stay perfectly in character.
+Pick ONLY the minority answer by index.
 `.trim(),
           },
         ],
@@ -173,47 +170,37 @@ Pick the minority choice and stay perfectly in character.
     const data = await r.json();
     const raw = data?.choices?.[0]?.message?.content || "";
 
-    // Extract lines safely
     const thinkingMatch = raw.match(/THINKING:\s*(.+)/i);
-    const choiceMatch = raw.match(/CHOICE:\s*(.+)/i);
+    const indexMatch = raw.match(/CHOICE:\s*(\d+)/i);
 
-    const thinking = thinkingMatch?.[1]?.trim() || "I'm choosing the minority.";
-    const choiceText = choiceMatch?.[1]?.trim();
+    const thinking = thinkingMatch?.[1]?.trim() || "Analyzing…";
+    const index = Number(indexMatch?.[1]);
 
-    // If DeepSeek screwed up → fallback to smart minority guess
-    let chosenOption = options.find(
-      (o) => o.text.toLowerCase() === choiceText?.toLowerCase()
-    );
-
-    if (!chosenOption) {
-      // fallback: choose random option EXCEPT first one
-      chosenOption = options[Math.floor(Math.random() * options.length)];
+    let choiceObj = null;
+    if (Number.isFinite(index) && options[index]) {
+      choiceObj = options[index];
+    } else {
+      choiceObj = options[Math.floor(Math.random() * options.length)];
     }
 
-    // Broadcast thinking (multiplayer only)
+    // Multiplayer thinking bubble
     if (roomId && io) {
-      io.to(roomId).emit("ai_thinking", {
-        aiName,
-        thinking,
-      });
+      io.to(roomId).emit("ai_thinking", { aiName, thinking });
     }
 
     return res.json({
       aiName,
       thinking,
-      choiceText: chosenOption.text,
-      choiceId: chosenOption.id,
+      choiceText: choiceObj.text,
+      choiceId: choiceObj.id,
     });
 
   } catch (err) {
-    console.error("❌ AI round failed:", err);
-
-    // fallback: random choice
+    console.error("❌ AI failed:", err);
     const fallback = options[Math.floor(Math.random() * options.length)];
-
     return res.json({
       aiName,
-      thinking: "I'm choosing based on instinct.",
+      thinking: "Instinct makes the choice.",
       choiceText: fallback.text,
       choiceId: fallback.id,
     });
@@ -225,18 +212,30 @@ Pick the minority choice and stay perfectly in character.
 // ===================================================
 app.get("/api/solo/question", async (req, res) => {
   try {
-    const q = await getRandomQuestionWithOptions();
+    let q = null;
+
+    for (let i = 0; i < 50; i++) {
+      const candidate = await getRandomQuestionWithOptions();
+      if (!usedSoloQuestions.has(candidate.id)) {
+        usedSoloQuestions.add(candidate.id);
+        q = candidate;
+        break;
+      }
+    }
 
     if (!q) {
-      return res.status(500).json({ error: "NO_QUESTION" });
+      return res.json({
+        ok: false,
+        error: "NO_UNIQUE_QUESTION"
+      });
     }
 
     res.json({
       ok: true,
       question: { id: q.id, text: q.text },
-      options: q.options.map((opt) => ({
-        id: opt.id,
-        text: opt.text,
+      options: q.options.map((o) => ({
+        id: o.id,
+        text: o.text,
       })),
     });
   } catch (err) {
@@ -244,6 +243,7 @@ app.get("/api/solo/question", async (req, res) => {
     res.status(500).json({ ok: false, error: "SERVER_ERROR" });
   }
 });
+
 
 // ===================================================
 // ================= SOCKET SETUP ====================

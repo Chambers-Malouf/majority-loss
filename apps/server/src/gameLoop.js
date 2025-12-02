@@ -113,31 +113,52 @@ export async function startRound(io, roomId, durationSec) {
   room.roundNumber = (room.roundNumber || 0) + 1;
   console.log("🎲 Starting round", room.roundNumber, "in room", roomId);
 
-  // ========================================================
-  //  FETCH QUESTION WITHOUT DUPLICATE
-  // ========================================================
-  if (!room.usedQuestionIds) room.usedQuestionIds = new Set();
+// ========================================================
+//  FETCH QUESTION WITHOUT DUPLICATES 
+// ========================================================
+if (!room.usedQuestionIds) room.usedQuestionIds = new Set();
 
-  const excludeIds = Array.from(room.usedQuestionIds.values());
-  const q = await getRandomQuestionWithOptions(excludeIds);
+let q = null;
 
-  room.usedQuestionIds.add(q.id);
+// Try up to 50 times to find a unique question
+for (let i = 0; i < 50; i++) {
+  const candidate = await getRandomQuestionWithOptions();
 
-  room.round = {
-    id: Date.now().toString(),
-    roundNumber: room.roundNumber,
-    question: { id: q.id, text: q.text },
-    options: q.options,
-  };
+  if (!room.usedQuestionIds.has(candidate.id)) {
+    q = candidate;
+    break;
+  }
+}
 
-  room.roundVotes = new Map();
-
-  io.to(roomId).emit("round_question", {
-    roundId: room.round.id,
-    roundNumber: room.round.roundNumber,
-    question: room.round.question,
-    options: room.round.options,
+if (!q) {
+  console.error("❌ No unique questions left for room:", roomId);
+  io.to(roomId).emit("round_error", {
+    error: "NO_UNIQUE_QUESTION",
   });
+  return;
+}
+
+// Mark as used
+room.usedQuestionIds.add(q.id);
+
+// Build round object
+room.round = {
+  id: Date.now().toString(),
+  roundNumber: room.roundNumber,
+  question: { id: q.id, text: q.text },
+  options: q.options,
+};
+
+room.roundVotes = new Map();
+
+// Send to clients
+io.to(roomId).emit("round_question", {
+  roundId: room.round.id,
+  roundNumber: room.round.roundNumber,
+  question: room.round.question,
+  options: room.round.options,
+});
+
 
   // ========================================================
   //  ROUND TIMER
