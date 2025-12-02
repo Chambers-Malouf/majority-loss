@@ -43,27 +43,6 @@ export const AudioManager = {
   },
 
   // --------------------------------------------------------
-  // UNLOCK AUDIO ON USER GESTURE (Safari / iOS FIX)
-  // --------------------------------------------------------
-  unlock() {
-    if (audioUnlocked) return;
-
-    for (const a of Object.values(this.tracks)) {
-      try {
-        a.muted = true;
-        a.play().then(() => {
-          a.pause();
-          a.currentTime = 0;
-          a.muted = globalMuted;
-        });
-      } catch (e) {
-      }
-    }
-
-    audioUnlocked = true;
-  },
-
-  // --------------------------------------------------------
   // PRELOAD ALL TRACKS AT ONCE
   // --------------------------------------------------------
   async loadAll() {
@@ -110,7 +89,7 @@ export const AudioManager = {
   // --------------------------------------------------------
   // MUTE TOGGLE
   // --------------------------------------------------------
-  toggleMute() {
+    toggleMute() {
     globalMuted = !globalMuted;
 
     for (const a of Object.values(this.tracks)) {
@@ -119,8 +98,27 @@ export const AudioManager = {
 
     return globalMuted;
   },
+  // --------------------------------------------------------
+  // UNLOCK AUDIO AUTOMATICALLY
+  // --------------------------------------------------------
+    unlock() {
+    if (audioUnlocked) return;
 
-  isMuted() {
-    return globalMuted;
+    audioUnlocked = true;
+
+    for (const a of Object.values(this.tracks)) {
+      try {
+        a.muted = true;
+        a.play()
+          .then(() => {
+            a.pause();
+            a.currentTime = 0;
+
+            a.muted = globalMuted;
+          })
+          .catch(() => {
+          });
+      } catch (_) {}
+    }
   },
 };

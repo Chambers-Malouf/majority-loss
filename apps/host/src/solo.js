@@ -27,8 +27,8 @@ const HTTP_BASE =
   window.location.origin;
 
 
-const SOLO_MAX_ROUNDS = 3;
-const SOLO_TIMER_SECONDS = 10;
+const SOLO_MAX_ROUNDS = 5;
+const SOLO_TIMER_SECONDS = 40;
 
 // ======== 4 AI PERSONALITIES ========
 const AI_LIST = [

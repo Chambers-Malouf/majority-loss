@@ -17,6 +17,15 @@ import {
 import { setMyPlayerId } from "./state.js";
 import { startSoloMode } from "./solo.js";
 
+document.addEventListener(
+  "click",
+  () => {
+    AudioManager.unlock();
+  },
+  { once: true }
+);
+
+
 let socket = null;
 let roomId = null;
 let myId = null;
