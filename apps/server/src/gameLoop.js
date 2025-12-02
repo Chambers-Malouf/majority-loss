@@ -2,11 +2,8 @@
 import { rooms } from "./rooms.js";
 import { getRandomQuestionWithOptions } from "./questions.js";
 
-// ❌ We no longer use this
-// const MAX_ROUNDS = 1;
-
 // ========================================================
-// 🏆 BUILD LEADERBOARD
+//  BUILD LEADERBOARD
 // ========================================================
 function buildLeaderboard(room) {
   return Array.from(room.players.values())
@@ -26,7 +23,7 @@ function buildLeaderboard(room) {
 }
 
 // ========================================================
-// 🛑 END GAME
+// END GAME
 // ========================================================
 function endGame(io, roomId, reason = "unknown") {
   const room = rooms.get(roomId);
@@ -58,7 +55,7 @@ function endGame(io, roomId, reason = "unknown") {
 }
 
 // ========================================================
-// 🎲 START ROUND
+//  START ROUND
 // ========================================================
 export async function startRound(io, roomId, durationSec) {
   const room = rooms.get(roomId);
@@ -70,7 +67,7 @@ export async function startRound(io, roomId, durationSec) {
   }
 
   // ========================================================
-  // 🧨 STOP IF FINAL ROUND ALREADY PASSED
+  //  STOP IF FINAL ROUND ALREADY PASSED
   // ========================================================
   if (room.roundNumber && room.roundNumber >= room.maxRounds) {
     console.log(
@@ -85,9 +82,8 @@ export async function startRound(io, roomId, durationSec) {
   }
 
   // ========================================================
-  // 🔢 RESOLVE ROUND DURATION FROM HOST SETTINGS
+  //  RESOLVE ROUND DURATION FROM HOST SETTINGS
   // ========================================================
-  // priority: explicit argument → stored room.roundDuration → fallback 20
   let rawDuration =
     durationSec !== undefined
       ? durationSec
@@ -103,22 +99,22 @@ export async function startRound(io, roomId, durationSec) {
   const D = Math.max(1, Math.min(300, rawDuration));
 
   console.log(
-    `⏳ startRound for room ${roomId} with duration ${D}s (roundDuration=${room.roundDuration}, arg=${durationSec})`
+    ` startRound for room ${roomId} with duration ${D}s (roundDuration=${room.roundDuration}, arg=${durationSec})`
   );
 
   // ========================================================
-  // 🧹 CLEAR PREVIOUS TIMER
+  //  CLEAR PREVIOUS TIMER
   // ========================================================
   if (room.timer) clearInterval(room.timer);
 
   // ========================================================
-  // 🔢 INCREMENT ROUND #
+  //  INCREMENT ROUND #
   // ========================================================
   room.roundNumber = (room.roundNumber || 0) + 1;
   console.log("🎲 Starting round", room.roundNumber, "in room", roomId);
 
   // ========================================================
-  // 🔑 FETCH QUESTION WITHOUT DUPLICATE
+  //  FETCH QUESTION WITHOUT DUPLICATE
   // ========================================================
   if (!room.usedQuestionIds) room.usedQuestionIds = new Set();
 
@@ -144,7 +140,7 @@ export async function startRound(io, roomId, durationSec) {
   });
 
   // ========================================================
-  // ⏳ ROUND TIMER
+  //  ROUND TIMER
   // ========================================================
   room.endAt = Date.now() + D * 1000;
 
@@ -164,7 +160,7 @@ export async function startRound(io, roomId, durationSec) {
     if (!room.round) return;
 
     // ========================================================
-    // 🧮 COUNT VOTES
+    // COUNT VOTES
     // ========================================================
     const countsById = {};
     for (const opt of room.round.options) {
@@ -185,7 +181,7 @@ export async function startRound(io, roomId, durationSec) {
     }));
 
     // ========================================================
-    // 🥈 FIND MINORITY
+    //  FIND MINORITY
     // ========================================================
     let winningOptionId = null;
     const nonzero = counts.filter((c) => c.count > 0);
@@ -197,7 +193,7 @@ export async function startRound(io, roomId, durationSec) {
     }
 
     // ========================================================
-    // ➕ APPLY POINTS
+    //  APPLY POINTS
     // ========================================================
     for (const [playerGameId, optionId] of room.roundVotes.entries()) {
       const player = Array.from(room.players.values()).find(
@@ -229,7 +225,7 @@ export async function startRound(io, roomId, durationSec) {
     });
 
     // ========================================================
-    // 🎯 END GAME BASED ON HOST ROUND LIMIT
+    //  END GAME BASED ON HOST ROUND LIMIT
     // ========================================================
     if (room.roundNumber >= room.maxRounds) {
       console.log(

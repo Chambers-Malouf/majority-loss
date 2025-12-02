@@ -1,12 +1,6 @@
 // apps/server/src/questions.js
 import { pool } from "./db.js";
 
-/**
- * Fetch a random active question + its options.
- *
- * If excludeIds is provided, we will try to avoid those IDs
- * until we've exhausted all active questions.
- */
 export async function getRandomQuestionWithOptions(excludeIds = []) {
   // 1) Get all active questions
   const qSql = `

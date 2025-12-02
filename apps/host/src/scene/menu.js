@@ -1,21 +1,18 @@
 // ============================================================
-// 🔊 AUDIO LOADING (runs once on app startup)
+// AUDIO LOADING (runs once on app startup)
 // ============================================================
 import { AudioManager } from "../audio/audioManager.js";
 
-// 🌙 Main menu & gameplay music (loops forever)
 AudioManager.load("main", "/sounds/menu-gameplay.mp3", {
   loop: true,
   volume: 0.55,
 });
 
-// 🎭 Intro cutscene music (non-looping)
 AudioManager.load("intro", "/sounds/intro-cutscene.mp3", {
   loop: false,
   volume: 0.8,
 });
 
-// 🏆 Winner cutscene music (we keep non-looping here too)
 AudioManager.load("winner", "/sounds/winner-sting.mp3", {
   loop: false,
   volume: 0.9,
@@ -23,7 +20,7 @@ AudioManager.load("winner", "/sounds/winner-sting.mp3", {
 
 
 // ============================================================
-// 🏛️ MAIN MENU SCENE
+// MAIN MENU SCENE
 // ============================================================
 console.log("🔥 mainMenuScene.js LOADED (live)");
 
@@ -176,7 +173,7 @@ function createSparks() {
 
 
 // ============================================================
-// INIT MAIN MENU SCENE  ⭐⭐ START THE MENU MUSIC HERE ⭐⭐
+// INIT MAIN MENU SCENE START THE MENU MUSIC HERE 
 // ============================================================
 export function initMainMenuScene(
   containerId = "table-app",
@@ -186,7 +183,7 @@ export function initMainMenuScene(
   if (!containerEl) throw new Error(`Missing container #${containerId}`);
 
   // ======================================================
-  // 🔊 AUTOPLAY FIX: Wait for first user interaction
+  // AUTOPLAY FIX: Wait for first user interaction
   // ======================================================
   let firstInteraction = () => {
     console.log("🔊 First interaction detected — starting menu music");
@@ -200,7 +197,6 @@ export function initMainMenuScene(
     typeof onMultiplayerClick === "function" ? onMultiplayerClick : null;
   onSoloClickCb = typeof onSoloClick === "function" ? onSoloClick : null;
 
-  // 🔊 STOP everything else & start menu music fresh
   AudioManager.stopAll();
   AudioManager.play("main");
 
@@ -401,10 +397,6 @@ export function disposeMainMenuScene() {
     animationId = null;
   }
 
-  // ⚠️ IMPORTANT: DO NOT STOP MUSIC HERE
-  // Music must continue into lobby and gameplay
-  // AudioManager.stopAll() happens in cutscenes or winner screen only.
-
   window.removeEventListener("resize", onWindowResize);
   if (renderer && renderer.domElement) {
     renderer.domElement.removeEventListener("pointermove", onPointerMove);
@@ -486,14 +478,12 @@ function onClickPoster(event) {
   const action = obj.userData.action;
   console.log("✅ Poster clicked:", action, obj.userData);
 
-  // 👉 MULTIPLAYER
   if (action === "multiplayer" && onMultiplayerClickCb) {
     // Do NOT stop music here!
     onMultiplayerClickCb();
     return;
   }
 
-  // 👉 SOLO MODE
   if (action === "solo" && onSoloClickCb) {
     if (soloStarting) return;
     soloStarting = true;

@@ -1,4 +1,3 @@
-// apps/server/src/index.js
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -54,7 +53,6 @@ app.post("/api/profile", async (req, res) => {
 
     console.log("🟢 /api/profile request:", display_name);
 
-    // find existing or create new user
     let userId;
     const existing = await pool.query(
       `SELECT id FROM users WHERE LOWER(display_name) = LOWER($1)`,
@@ -102,7 +100,7 @@ app.get("/api/profile/:name", async (req, res) => {
       LEFT JOIN profiles p ON u.id = p.user_id
       WHERE LOWER(u.display_name) = LOWER($1)
     `;
-    const { rows } = await pool.query(q, [name]);
+  const { rows } = await pool.query(q, [name]);
     if (!rows.length)
       return res.status(404).json({ ok: false, error: "NOT_FOUND" });
     return res.json({ ok: true, profile: rows[0] });
@@ -111,7 +109,9 @@ app.get("/api/profile/:name", async (req, res) => {
     return res.status(500).json({ ok: false, error: err.message });
   }
 });
+
 let io;
+
 // ====================================================
 // ================= SOLO / AI ROUTES =================
 // ====================================================
@@ -122,46 +122,7 @@ app.post("/api/ai-round", async (req, res) => {
     return res.status(400).json({ error: "BAD_INPUT" });
   }
 
-  // ---------- PERSONALITY-STYLE LIBRARY ----------
-  const thoughtStyles = {
-    "calm": [
-      "I think most will choose __MAJ__, so picking __MIN__ gives me an edge.",
-      "Quiet logic says the crowd favors __MAJ__, so I’ll lean toward __MIN__.",
-      "Most people go with __MAJ__, so __MIN__ is safer."
-    ],
-    "chaotic": [
-      "Chaos calls me to reject __MAJ__ and dive into __MIN__.",
-      "Instinct screams avoid __MAJ__; choosing __MIN__ feels thrilling.",
-      "I crave the minority, so I’ll oppose the herd choosing __MAJ__ and take __MIN__."
-    ],
-    "strategic": [
-      "Statistically most pick __MAJ__, meaning __MIN__ wins.",
-      "Majority logic: __MAJ__ dominates, so __MIN__ is optimal.",
-      "People bias toward __MAJ__, so I’ll take __MIN__."
-    ],
-    "sarcastic": [
-      "Everyone will obviously choose __MAJ__, so I guess I’m stuck choosing __MIN__.",
-      "The crowd loves __MAJ__; fine, I’ll go with __MIN__.",
-      "Let them pick __MAJ__; I’ll quietly take __MIN__."
-    ],
-    "dramatic": [
-      "The masses will flock to __MAJ__, so I embrace the lonely path of __MIN__.",
-      "They chase __MAJ__, but destiny pulls me toward __MIN__.",
-      "The herd seeks __MAJ__; I choose the shadowed minority of __MIN__."
-    ]
-  };
-
-  // pick a style based on personality, fallback random
-  const styleKey =
-    (aiPersonality && thoughtStyles[aiPersonality.toLowerCase()]) ?
-      aiPersonality.toLowerCase() :
-      Object.keys(thoughtStyles)[Math.floor(Math.random() * 5)];
-
-  const styleArray = thoughtStyles[styleKey];
-  const template = styleArray[Math.floor(Math.random() * styleArray.length)];
-
   try {
-    // Ask DeepSeek ONLY for minority choice (not the thought text)
     const r = await fetch("https://api.deepseek.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -170,27 +131,35 @@ app.post("/api/ai-round", async (req, res) => {
       },
       body: JSON.stringify({
         model: "deepseek-chat",
-        temperature: 0.7,
+        temperature: 0.8,
         messages: [
           {
             role: "system",
             content: `
-You determine which option is most likely to be picked by MOST players.
-Then choose the OPPOSITE (the minority).
+${aiPersonality}
 
-ONLY output in this exact strict format:
+You are playing a psychological game called Majority Loss.
+GOAL: Always choose the option that FEWEST other players will pick (the MINORITY).
+Stay fully in character. You ALWAYS try to win.
 
-THINKING: <majority-option-text>
-CHOICE: <minority-option-text>
+Respond in EXACTLY this format:
 
-Do NOT add any extra words. Not a full sentence.
-          `.trim(),
+THINKING: <one in-character sentence explaining your logic>
+CHOICE: <exact option text you pick>
+
+Nothing else. No additional lines. Only one sentence for THINKING.
+`.trim(),
           },
           {
             role: "user",
-            content: `${question.text}\nOptions: ${options
-              .map((o) => o.text)
-              .join(", ")}`,
+            content: `
+Question: ${question.text}
+Options:
+${options.map((o) => "- " + o.text).join("\n")}
+
+Decide which option the majority picks, then choose the minority.
+Stay perfectly in character.
+`.trim(),
           },
         ],
       }),
@@ -199,65 +168,47 @@ Do NOT add any extra words. Not a full sentence.
     const data = await r.json();
     const raw = data?.choices?.[0]?.message?.content || "";
 
-    // parse DeepSeek result
-    const majMatch = raw.match(/THINKING:\s*(.+)/i);
+    const thinkMatch = raw.match(/THINKING:\s*(.+)/i);
     const choiceMatch = raw.match(/CHOICE:\s*(.+)/i);
 
-    const maj = majMatch?.[1]?.trim() || options[0].text;
-    const choiceText = choiceMatch?.[1]?.trim() || options[1].text;
+    const thinking = thinkMatch?.[1]?.trim() || "...";
+    const choiceText = choiceMatch?.[1]?.trim() || options[0].text;
 
     const choice = options.find(
-      (o) =>
-        o.text.toLowerCase().trim() === choiceText.toLowerCase().trim()
+      (o) => o.text.toLowerCase().trim() === choiceText.toLowerCase().trim()
     );
 
-    // create personality-based inner thought by chambers
-    const innerThought = template
-      .replace(/__MAJ__/g, maj)
-      .replace(/__MIN__/g, choiceText)
-      .trim()
-      .slice(0, 120); // safety limit
-
-    // broadcast thinking in multiplayer
     if (roomId && io) {
-      io.to(roomId).emit("ai_thinking", {
-        aiName,
-        thinking: innerThought,
-      });
+      io.to(roomId).emit("ai_thinking", { aiName, thinking });
     }
 
-    res.json({
+    return res.json({
       aiName,
-      thinking: innerThought,
+      thinking,
       choiceText,
       choiceId: choice?.id || null,
     });
-  } catch (e) {
-    console.error("❌ AI round failed:", e);
-    res.status(500).json({ error: "AI_FAILED", details: String(e) });
+
+  } catch (err) {
+    console.error("❌ AI round failed:", err);
+    return res.status(500).json({ error: "AI_FAILED" });
   }
 });
+
 // ===================================================
 // ============= SOLO QUESTION ENDPOINT ==============
 // ===================================================
 app.get("/api/solo/question", async (req, res) => {
   try {
-    // Get a random question + options from your questions.js helper
     const q = await getRandomQuestionWithOptions();
 
     if (!q) {
-      return res.status(500).json({
-        error: "NO_QUESTION",
-      });
+      return res.status(500).json({ error: "NO_QUESTION" });
     }
 
-    // Format the response in the exact structure solo.js expects
     res.json({
       ok: true,
-      question: {
-        id: q.id,
-        text: q.text,
-      },
+      question: { id: q.id, text: q.text },
       options: q.options.map((opt) => ({
         id: opt.id,
         text: opt.text,
@@ -283,90 +234,59 @@ io = new Server(server, {
 io.on("connection", (socket) => {
   console.log("⚡ Client connected:", socket.id);
 
-  // ---------- HOST CREATE ----------
   socket.on("host_create", async (ack) => {
     try {
       const { roomId, gameId } = await createRoomWithGame();
-
       socket.join(roomId);
-      console.log(`🧩 Room created: ${roomId} (game id: ${gameId})`);
-
+      console.log(`🧩 Room created: ${roomId}`);
       ack?.({ roomId, gameId });
     } catch (err) {
-      console.error("❌ host_create failed:", err);
       ack?.({ error: "HOST_CREATE_FAILED" });
     }
   });
 
-// ---------- START GAME ----------
-socket.on("start_game", ({ roomId, duration, maxRounds } = {}, ack) => {
-  const room = rooms.get(roomId);
-  if (!room) return ack?.({ error: "ROOM_NOT_FOUND" });
-  if (!room.players.has(socket.id)) return ack?.({ error: "NOT_IN_ROOM" });
+  socket.on("start_game", ({ roomId, duration, maxRounds } = {}, ack) => {
+    const room = rooms.get(roomId);
+    if (!room) return ack?.({ error: "ROOM_NOT_FOUND" });
+    if (!room.players.has(socket.id)) return ack?.({ error: "NOT_IN_ROOM" });
 
-  // ⭐ FIX: Safe number parsing — no more NaN → 20 bugs
-  const parsedDur = Number(duration);
-  const parsedMax = Number(maxRounds);
+    const d = Number(duration);
+    const r = Number(maxRounds);
 
-  room.roundDuration = Number.isFinite(parsedDur) ? parsedDur : 20;
-  room.maxRounds = Number.isFinite(parsedMax) ? parsedMax : 10;
+    room.roundDuration = Number.isFinite(d) ? d : 20;
+    room.maxRounds = Number.isFinite(r) ? r : 10;
 
-  console.log(`🔧 Host settings for ${roomId}:`, {
-    roundDuration: room.roundDuration,
-    maxRounds: room.maxRounds,
+    room.roundVotes = new Map();
+    room.round = null;
+
+    if (!room.hasPlayedIntro) {
+      room.hasPlayedIntro = true;
+      io.to(roomId).emit("playIntroCutscene");
+      return ack?.({ ok: true, intro: true });
+    }
+
+    startRound(io, roomId, room.roundDuration)
+      .then(() => {
+        room.ready = new Map();
+        ack?.({ ok: true });
+      })
+      .catch(() => ack?.({ error: "START_FAILED" }));
   });
 
-  room.roundVotes = new Map();
-  room.round = null;
+  socket.on("intro_done", ({ roomId } = {}) => {
+    const room = rooms.get(roomId);
+    if (!room) return;
+    if (!room.players.has(socket.id)) return;
+    if (!room.hasPlayedIntro || room.round || room.gameOver) return;
 
-  if (!room.hasPlayedIntro) {
-    room.hasPlayedIntro = true;
-    io.to(roomId).emit("playIntroCutscene");
-    ack?.({ ok: true, intro: true });
-    return;
-  }
+    if (!Number.isFinite(room.roundDuration)) room.roundDuration = 20;
+    if (!Number.isFinite(room.maxRounds)) room.maxRounds = 10;
 
-  startRound(io, roomId, room.roundDuration)
-    .then(() => {
-      room.ready = new Map();
-      ack?.({ ok: true });
-    })
-    .catch((err) => {
-      console.error("❌ start_game failed:", err);
-      ack?.({ error: "START_FAILED" });
-    });
-});
+    startRound(io, roomId, room.roundDuration).catch((e) =>
+      console.error("intro_done fail", e)
+    );
+  });
 
-
-
-// ---------- INTRO DONE ----------
-socket.on("intro_done", ({ roomId } = {}) => {
-  const room = rooms.get(roomId);
-  if (!room) return;
-  if (!room.players.has(socket.id)) return;
-  if (!room.hasPlayedIntro) return;
-  if (room.round) return;
-  if (room.gameOver) return;
-
-  // ⛔ DO NOT USE A LOCAL VARIABLE
-  // ALWAYS TRUST room.roundDuration DIRECTLY
-  if (!Number.isFinite(room.roundDuration)) {
-    room.roundDuration = 20; // final fallback
-  }
-
-  if (!Number.isFinite(room.maxRounds)) {
-    room.maxRounds = 10;
-  }
-
-  console.log("🎬 intro_done → using EXACT host duration:", room.roundDuration);
-
-  startRound(io, roomId, room.roundDuration).catch((err) =>
-    console.error("❌ intro_done → startRound failed:", err)
-  );
-});
-
-
-  // ---------- JOIN ROOM ----------
   socket.on("join_room", async ({ roomId, name }, ack) => {
     try {
       const room = rooms.get(roomId);
@@ -391,6 +311,7 @@ socket.on("intro_done", ({ roomId } = {}) => {
       for (const [pid, val] of room.ready.entries()) {
         readyObj[pid] = !!val;
       }
+
       io.to(roomId).emit("ready_state", {
         ready: readyObj,
         allReady: computeAllReady(room),
@@ -398,18 +319,16 @@ socket.on("intro_done", ({ roomId } = {}) => {
 
       ack?.({ ok: true, playerId: socket.id });
     } catch (err) {
-      console.error("❌ join_room failed:", err);
       ack?.({ error: "JOIN_FAILED" });
     }
   });
 
-  // ---------- PLAYER READY ----------
   socket.on("player_ready", ({ roomId } = {}, ack) => {
     const room = rooms.get(roomId);
     if (!room) return ack?.({ error: "ROOM_NOT_FOUND" });
     if (!room.players.has(socket.id)) return ack?.({ error: "NOT_IN_ROOM" });
 
-    if (!room.ready) room.ready = new Map();
+    room.ready ??= new Map();
     room.ready.set(socket.id, true);
 
     const readyObj = {};
@@ -417,17 +336,14 @@ socket.on("intro_done", ({ roomId } = {}) => {
       readyObj[pid] = !!val;
     }
 
-    const allReady = computeAllReady(room);
-
     io.to(roomId).emit("ready_state", {
       ready: readyObj,
-      allReady,
+      allReady: computeAllReady(room),
     });
 
     ack?.({ ok: true });
   });
 
-  // ---------- VOTE ----------
   socket.on("vote", ({ roomId, roundId, optionId }, ack) => {
     const room = rooms.get(roomId);
     if (!room) return ack?.({ error: "ROOM_NOT_FOUND" });
@@ -444,11 +360,9 @@ socket.on("intro_done", ({ roomId } = {}) => {
     );
     if (!exists) return ack?.({ error: "BAD_OPTION" });
 
-    // Store vote keyed by playerGameId (stable within the game)
-    room.roundVotes = room.roundVotes || new Map();
+    room.roundVotes ??= new Map();
     room.roundVotes.set(player.playerGameId, Number(optionId));
 
-    // Build voted map keyed by socket.id just for UI (optional)
     const voted = {};
     for (const [pgId] of room.roundVotes.entries()) {
       const p = Array.from(room.players.values()).find(
@@ -456,33 +370,24 @@ socket.on("intro_done", ({ roomId } = {}) => {
       );
       if (p) voted[p.id] = true;
     }
+
     io.to(roomId).emit("vote_status", { voted });
 
     ack?.({ ok: true });
-    console.log("✅ vote received", {
-      roomId,
-      socketId: socket.id,
-      playerGameId: player.playerGameId,
-      optionId,
-    });
   });
 
-  // ---------- DISCONNECT ----------
   socket.on("disconnect", () => {
     for (const [roomId, room] of rooms) {
       let removed = false;
-      if (room.players.delete(socket.id)) {
-        removed = true;
-      }
-      if (room.ready) {
-        room.ready.delete(socket.id);
-      }
+
+      if (room.players.delete(socket.id)) removed = true;
+      room.ready?.delete(socket.id);
 
       if (removed) {
         if (room.players.size === 0) {
           if (room.timer) clearInterval(room.timer);
           rooms.delete(roomId);
-          console.log(`🧹 Room ${roomId} deleted (empty)`);
+          console.log(`🧹 Room ${roomId} deleted`);
         } else {
           broadcastRoomState(io, roomId);
 
@@ -490,6 +395,7 @@ socket.on("intro_done", ({ roomId } = {}) => {
           for (const [pid, val] of room.ready.entries()) {
             readyObj[pid] = !!val;
           }
+
           io.to(roomId).emit("ready_state", {
             ready: readyObj,
             allReady: computeAllReady(room),
@@ -504,10 +410,10 @@ socket.on("intro_done", ({ roomId } = {}) => {
 
 function computeAllReady(room) {
   if (!room || !room.players) return false;
-  const playerIds = Array.from(room.players.keys());
-  if (!playerIds.length) return false;
+  const ids = Array.from(room.players.keys());
+  if (!ids.length) return false;
   if (!room.ready) return false;
-  return playerIds.every((id) => room.ready.get(id) === true);
+  return ids.every((id) => room.ready.get(id) === true);
 }
 
 // ===================================================

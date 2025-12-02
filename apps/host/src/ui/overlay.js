@@ -13,9 +13,8 @@ const overlayRootId = "overlay-root";
 // Lobby / in-room settings we want to remember between renders
 let currentRoundTime = 20; // seconds
 let currentMaxRounds = 5;
-let lastLobbyContext = null; // { roomId, players, myId, readyById }
+let lastLobbyContext = null; 
 
-// expose to table.js auto-start
 if (typeof window !== "undefined") {
   window.__roundTime = currentRoundTime;
   window.__maxRounds = currentMaxRounds;
@@ -27,8 +26,6 @@ function getOverlayRoot() {
     console.error("❌ Missing overlay root");
     return null;
   }
-  // Root itself lets pointer events pass through;
-  // inner cards/buttons explicitly turn pointer-events on.
   root.style.pointerEvents = "none";
   return root;
 }
@@ -66,8 +63,6 @@ export function renderLobbyOverlay({
     onCreateRoomClick,
     onJoinRoomClick,
   });
-
-  // no cleanup needed beyond chalk mode reset
 }
 
 /* -----------------------------------------------------
@@ -300,7 +295,7 @@ export function renderInRoomOverlay({
     modal.style.display = "none";
   }
 
-  // 💡 Center chalkboard click → open settings
+  // Center chalkboard click → open settings
   setChalkInRoomSettingsHandler({
     onSettingsClick: openModal,
   });
@@ -452,7 +447,7 @@ export function renderGameOverOverlay({ roomId, leaderboard, onBackToLobby }) {
 
   setCourtroomBanner(
     `Game Over — Room ${roomId}`,
-    "MAJORITY LOSS\nTrial by Chambers Malouf",
+    "MAJORITY LOSS\n by Chambers Malouf",
     "Refresh tab to leave or play again",
     summary
   );

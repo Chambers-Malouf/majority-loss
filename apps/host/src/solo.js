@@ -4,7 +4,7 @@ console.log("🔎 VITE SOCKET:", import.meta.env.VITE_SOCKET_URL);
 console.log("🔎 VITE HTTP:", import.meta.env.VITE_HTTP_URL);
 
 
-// ⭐ AUDIO MANAGER
+//  AUDIO MANAGER
 import { AudioManager } from "./audio/audioManager.js";
 
 import {
@@ -94,28 +94,22 @@ export async function startSoloMode() {
 
   console.log("🎮 SOLO MODE START — player:", playerName);
 
-  // 1. Build courtroom scene
   initScene("table-app");
 
-  // ⭐ AUDIO: Start intro music immediately
   AudioManager.stopAll();
   AudioManager.play("intro");
 
-  // 2. Play intro cutscene
   await new Promise((resolve) => {
     console.log("🎬 SOLO — playing intro cutscene from scene.js");
     playIntroFromScene(resolve);
   });
 
-  // ⭐ AUDIO: Return to gameplay track
   AudioManager.stop("intro");
   AudioManager.play("main");
 
-  // 3. Set up players + AI
   setupSoloTable(playerName);
   setCourtroomBanner("", `SOLO MODE — You vs 4 AI`, "");
 
-  // 4. Run round loop
   await runNextSoloRound(playerName);
 }
 
@@ -346,16 +340,14 @@ async function showSoloGameOver() {
   const leaderboard = buildLeaderboard();
   const winnerName = leaderboard[0]?.name || "Winner";
 
-  // ⭐ AUDIO: Stop main, play winner cutscene music
   AudioManager.stopAll();
   AudioManager.play("winner");
 
-  // Run winner cutscene
   await new Promise((resolve) => {
     playWinnerFromScene(winnerName, resolve);
+    AudioManager.play("winner");
   });
 
-  // ⭐ AUDIO: Fade back to main loop afterwards
   AudioManager.stop("winner");
   AudioManager.play("main");
 

@@ -6,9 +6,6 @@ import { createAvatar } from "../scene/avatar.js";
 
 const wait = (ms) => new Promise((res) => setTimeout(res, ms));
 
-/* --------------------------------------------------
-   BLACK BACKGROUND "STAGE"
--------------------------------------------------- */
 
 function createBlackBG(scene) {
   const plane = new THREE.Mesh(
@@ -36,9 +33,6 @@ function showCourtroom(scene) {
   });
 }
 
-/* --------------------------------------------------
-   CONFETTI
--------------------------------------------------- */
 
 function spawnConfetti(scene) {
   const pieces = [];
@@ -86,9 +80,6 @@ function spawnConfetti(scene) {
   return pieces;
 }
 
-/* --------------------------------------------------
-   WINNER AVATAR DANCE
--------------------------------------------------- */
 
 function applyDance(group) {
   let t = 0;
@@ -108,9 +99,6 @@ function stopDance(group) {
   }
 }
 
-/* --------------------------------------------------
-   MAIN CUTSCENE
--------------------------------------------------- */
 
 export async function playWinnerCutscene(winnerNames, onFinish = () => {}) {
   if (!Array.isArray(winnerNames)) winnerNames = [winnerNames];
@@ -125,10 +113,8 @@ export async function playWinnerCutscene(winnerNames, onFinish = () => {}) {
     return onFinish();
   }
 
-  /* ---------- LOCK GAME CAMERA ---------- */
   startCutscene();
 
-  /* ---------- FULLSCREEN CANVAS FIX ---------- */
   const canvas = document.querySelector("canvas");
   let prevCanvasHeight = null;
   let prevCanvasPosition = null;
@@ -149,7 +135,6 @@ export async function playWinnerCutscene(winnerNames, onFinish = () => {}) {
   document.body.style.background = "black";
   document.body.style.overflow = "hidden";
 
-  /* ---------- FADE OVERLAY ---------- */
   let fade = document.getElementById("cutscene-fade");
   if (!fade) {
     fade = document.createElement("div");
@@ -169,10 +154,8 @@ export async function playWinnerCutscene(winnerNames, onFinish = () => {}) {
 
   hideCourtroom(scene);
 
-  /* ---------- BACKGROUND ---------- */
   const bg = createBlackBG(scene);
 
-  /* ---------- LIGHTING (BRIGHT & CLEAN) ---------- */
   const ambient = new THREE.AmbientLight(0xffffff, 1.2);
   const key = new THREE.DirectionalLight(0xffffff, 2.2);
   key.position.set(4, 8, 6);
@@ -180,7 +163,6 @@ export async function playWinnerCutscene(winnerNames, onFinish = () => {}) {
   fill.position.set(-4, 6, 5);
   scene.add(ambient, key, fill);
 
-  /* ---------- GLOW FLOOR ---------- */
   const floor = new THREE.Mesh(
     new THREE.CircleGeometry(5, 32),
     new THREE.MeshStandardMaterial({
@@ -195,7 +177,6 @@ export async function playWinnerCutscene(winnerNames, onFinish = () => {}) {
   floor.position.set(0, 1.5, 0);
   scene.add(floor);
 
-  /* ---------- WINNER TITLE ---------- */
   let title = document.getElementById("winner-title");
   if (!title) {
     title = document.createElement("div");
@@ -218,7 +199,6 @@ export async function playWinnerCutscene(winnerNames, onFinish = () => {}) {
       ? `★ ${winnerNames[0]} WINS! ★`
       : `★ TIE: ${winnerNames.join(" • ")} ★`;
 
-  /* ---------- SUBTITLE ---------- */
   let sub = document.getElementById("winner-subtext");
   if (!sub) {
     sub = document.createElement("div");

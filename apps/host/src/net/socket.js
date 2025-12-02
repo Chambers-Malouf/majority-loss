@@ -4,7 +4,6 @@ console.log("🔎 socket.js VITE SOCKET:", import.meta.env.VITE_SOCKET_URL);
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
 
-// Singleton socket instance so everyone shares the same connections
 let socketInstance = null;
 
 export function createSocket() {

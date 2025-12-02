@@ -11,7 +11,7 @@ export const AudioManager = {
     audio.loop = loop;
     audio.volume = volume;
     audio.preload = "auto";
-    audio.muted = globalMuted; // respect global mute state
+    audio.muted = globalMuted; 
     this.tracks[name] = audio;
   },
 
@@ -19,7 +19,6 @@ export const AudioManager = {
     const a = this.tracks[name];
     if (!a) return;
 
-    // enforce mute state even if called mid-game
     a.muted = globalMuted;
 
     try {
@@ -45,7 +44,6 @@ export const AudioManager = {
   toggleMute() {
     globalMuted = !globalMuted;
 
-    // Apply mute to all loaded tracks
     for (const a of Object.values(this.tracks)) {
       a.muted = globalMuted;
     }

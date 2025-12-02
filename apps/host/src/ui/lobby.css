@@ -1,5 +1,4 @@
-/*apps/host/src/ui/lobby.css ( our global css file, somehow)
-/* Floating button container (right side of screen) */
+/*apps/host/src/ui/lobby.css */
 .lobby-buttons {
   position: fixed;
   right: 40px;
@@ -90,7 +89,6 @@ canvas {
   transform: scale(0.98);
 }
 
-/* add little ▼ */
 .chalk-dropdown::after {
   content: "▼";
 }

@@ -1,11 +1,5 @@
 // apps/host/src/scene/avatar.js
 import * as THREE from "three";
-
-/**
- * Make a goofy cartoon robot avatar.
- * Returns a THREE.Group positioned at the origin.
- * Caller is responsible for placing it in the scene.
- */
 export function createAvatar(name = "BOT") {
   const group = new THREE.Group();
 
@@ -83,9 +77,7 @@ export function createAvatar(name = "BOT") {
   face.position.set(0, 0, 0.55);
   headGroup.add(face);
 
-  // store reference for POV attachment later
   group.userData.headGroup = headGroup;
-  // Glowing eyes (two tiny spheres)
   const eyeMat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
     emissive: new THREE.Color(0x7dd3fc),
@@ -99,7 +91,6 @@ export function createAvatar(name = "BOT") {
   eyeR.position.x *= -1;
   group.add(eyeL, eyeR);
 
-  // Emotive "mouth" bar
   const mouth = new THREE.Mesh(
     new THREE.BoxGeometry(0.5, 0.06, 0.08),
     new THREE.MeshStandardMaterial({
@@ -186,9 +177,8 @@ export function createAvatar(name = "BOT") {
   group.add(label);
 
   // ---------------- HEAD ANCHOR FOR CAMERA ---------
-  // This is where we mount the per-player POV camera.
   const headAnchor = new THREE.Object3D();
-  headAnchor.position.set(1, 4, 0); // center of head
+  headAnchor.position.set(1, 4, 0); 
   group.add(headAnchor);
   group.userData.headAnchor = headAnchor;
 
@@ -199,9 +189,6 @@ export function createAvatar(name = "BOT") {
   return group;
 }
 
-/**
- * Simple canvas-based text sprite for the robot's name.
- */
 function makeNameSprite(name) {
   const canvas = document.createElement("canvas");
   canvas.width = 512;

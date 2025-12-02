@@ -2,29 +2,23 @@
 import * as THREE from "three";
 import { moveCameraTo, stopCutscene } from "./cutsceneCamera.js";
 
-/**
- * We now accept roundCount as a parameter.
- * This allows us to customize the judge's dialogue.
- */
+
 export async function playIntroCutscene(roundCount = 5, onFinish = () => {}) {
   console.log("🎯 Cutscene received roundCount =", roundCount);
   console.log("🎥 Playing INTRO cutscene");
 
-  const cam = window.__majorityCamera;  // set in scene.js
+  const cam = window.__majorityCamera;  
   if (!cam) return onFinish();
 
-  // 1. Camera starts at back of room
   cam.position.set(0, 3, -14);
   cam.lookAt(0, 4, 11);
 
-  // 2. Move camera forward toward judge
   await moveCameraTo(
-    new THREE.Vector3(0, 3.5, 6.5),      // new cam position
-    new THREE.Vector3(0, 3.8, 11.4),     // look at judge
+    new THREE.Vector3(0, 3.5, 6.5),      
+    new THREE.Vector3(0, 3.8, 11.4),    
     2.2
   );
 
-  // --- UPDATED DYNAMIC DIALOGUE ---
   const judgeLines = [
     "Attention robots...",
     "You five stand on trial under suspicion of being HUMAN.",
@@ -36,7 +30,6 @@ export async function playIntroCutscene(roundCount = 5, onFinish = () => {}) {
     "Good luck. Your trial begins now..."
   ];
 
-  // 3. Dialogue subtitles overlay
   const box = document.createElement("div");
   box.style.position = "fixed";
   box.style.bottom = "6%";
@@ -54,7 +47,6 @@ export async function playIntroCutscene(roundCount = 5, onFinish = () => {}) {
     await new Promise((r) => setTimeout(r, 4500));
   }
 
-  // Remove overlay
   box.remove();
 
   stopCutscene();

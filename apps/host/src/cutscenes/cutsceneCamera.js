@@ -3,7 +3,6 @@ import * as THREE from "three";
 let camera = null;
 let isCutscene = false;
 
-// Store original gameplay camera state
 let savedGameplayPos = null;
 let savedGameplayLook = null;
 
@@ -11,16 +10,11 @@ export function attachCutsceneCamera(cam) {
   camera = cam;
 }
 
-/* ----------------------------------------------------------
-    CUTSCENE STATE CONTROL
----------------------------------------------------------- */
-
 export function startCutscene() {
   if (!camera) return;
 
   isCutscene = true;
 
-  // Save camera state before cutscene hijacks it
   savedGameplayPos = camera.position.clone();
 
   const dir = new THREE.Vector3();
@@ -31,7 +25,6 @@ export function startCutscene() {
 export function stopCutscene() {
   if (!camera) return;
 
-  // Restore gameplay camera
   if (savedGameplayPos) camera.position.copy(savedGameplayPos);
   if (savedGameplayLook) camera.lookAt(savedGameplayLook);
 
@@ -42,9 +35,6 @@ export function cutsceneActive() {
   return isCutscene;
 }
 
-/* ----------------------------------------------------------
-    CAMERA TWEEN
----------------------------------------------------------- */
 
 export function moveCameraTo(pos, look, duration = 1.5) {
   return new Promise((resolve) => {

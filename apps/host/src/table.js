@@ -191,7 +191,6 @@ function onStartGameClick({ roundTime, maxRounds } = {}) {
   roundTime = Number(roundTime ?? window.__roundTime ?? 20);
   maxRounds = Number(maxRounds ?? window.__maxRounds ?? 5);
 
-  // ✅ FIX #1 — Persist host settings globally
   window.__roundTime = roundTime;
   window.__maxRounds = maxRounds;
 
@@ -220,7 +219,7 @@ function onStartGameClick({ roundTime, maxRounds } = {}) {
         alert(`Start failed: ${ack.error}`);
         return;
       }
-      console.log("✅ start_game acknowledged:", ack);
+      console.log(" start_game acknowledged:", ack);
     }
   );
 }
@@ -233,7 +232,7 @@ function maybeAutoStart() {
   if (!allReady) return;
   if (gameStarted || currentRound) return;
 
-  console.log("🎬 All players ready — auto starting");
+  console.log(" All players ready — auto starting");
 
   onStartGameClick({
     roundTime: window.__roundTime || 20,
@@ -333,7 +332,7 @@ function wireSocketEvents() {
   });
 
   socket.on("playIntroCutscene", () => {
-    console.log("🎬 PLAY INTRO");
+    console.log("PLAY INTRO");
     playIntroFromScene(() => {
       if (isHost() && !gameStarted && !currentRound) {
         socket.emit("intro_done", { roomId });
