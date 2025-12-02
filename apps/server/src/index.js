@@ -138,19 +138,20 @@ app.post("/api/ai-round", async (req, res) => {
           {
             role: "system",
             content: `
-${aiPersonality}
+            ${aiPersonality}
 
 You are playing Majority Loss.
 RULE: Choose the option that FEWEST players will pick (the minority).
 
 You MUST respond in EXACTLY this format:
 
-THINKING: <one short sentence>
+THINKING: <a single sentence spoken in your character's natural style — dramatic if you're Yumeko, monotone if you're L, cold/logical if you're Chishiya, etc.>
 CHOICE: <number>
 
-Where <number> is the INDEX (0, 1, 2...) of the chosen option.
+Where <number> is the INDEX (0,1,2...) of the chosen option.
 Do NOT return the text. Do NOT add extra lines.
 `.trim(),
+
           },
           {
             role: "user",
