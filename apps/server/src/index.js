@@ -319,6 +319,10 @@ io.on("connection", (socket) => {
       const room = rooms.get(roomId);
       if (!room) return ack?.({ error: "ROOM_NOT_FOUND" });
 
+      if (room.players.size >= 5) {
+      return ack?.({ error: "Room is full (max 5 players)." });
+      }
+
       const p = await addPlayer(room.gameId, (name || "Player").trim());
       room.players.set(socket.id, {
         id: socket.id,
