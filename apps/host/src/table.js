@@ -332,7 +332,8 @@ function wireSocketEvents() {
       .map((p) => p.name);
 
     AudioManager.stopAll();
-    AudioManager.play("winner");
+    setTimeout(() => AudioManager.play("winner"), 150);
+
 
     playWinnerCutscene(winners, () => {
       AudioManager.stop("winner");

@@ -341,9 +341,7 @@ async function showSoloGameOver() {
   const winnerName = leaderboard[0]?.name || "Winner";
 
   AudioManager.stopAll();
-  await AudioManager.ensureLoaded("winner");
-  AudioManager.play("winner");
-
+  setTimeout(() => AudioManager.play("winner"), 150);  
   await new Promise((resolve) => {
     playWinnerFromScene(winnerName, resolve);
   });

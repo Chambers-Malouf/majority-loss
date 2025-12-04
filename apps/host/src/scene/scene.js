@@ -171,6 +171,8 @@ export function playWinnerFromScene(winnerName, onFinish = () => {}) {
   }
 
   console.log("🏆 Starting WINNER cutscene from scene.js");
+  AudioManager.stopAll();
+  setTimeout(() => AudioManager.play("winner"), 150);
 
   playWinnerCutscene(winnerName, () => {
     if (renderer?.domElement) {
