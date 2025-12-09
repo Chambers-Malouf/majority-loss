@@ -258,8 +258,6 @@ io.to(roomId).emit("round_question", {
       endGame(io, roomId, "round_limit");
       return;
     }
-
-    // Wait for next round trigger from host
     room.round = null;
     room.roundVotes = new Map();
   }, 1000);

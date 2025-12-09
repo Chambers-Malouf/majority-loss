@@ -185,7 +185,6 @@ Pick ONLY the minority answer by index.
       choiceObj = options[Math.floor(Math.random() * options.length)];
     }
 
-    // Multiplayer thinking bubble
     if (roomId && io) {
       io.to(roomId).emit("ai_thinking", { aiName, thinking });
     }

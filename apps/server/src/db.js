@@ -28,7 +28,6 @@ export async function getOrCreateGameByCode(code, maxPoints = 5) {
 }
 
 export async function addPlayer(gameId, displayName = "Player") {
-  // STEP 1: find or create user in `users`
   const existing = await pool.query(
     `SELECT id FROM users WHERE LOWER(display_name) = LOWER($1)`,
     [displayName]
@@ -47,7 +46,6 @@ export async function addPlayer(gameId, displayName = "Player") {
     userId = created.rows[0].id;
   }
 
-  // STEP 2: insert into player_game
   const insertPG = await pool.query(
     `
       INSERT INTO player_game (game_id, user_id, display_name, points)
@@ -57,7 +55,6 @@ export async function addPlayer(gameId, displayName = "Player") {
     [gameId, userId, displayName]
   );
 
-  // RETURN player_game row
   return {
     playerGameId: insertPG.rows[0].id,
     userId,

@@ -10,7 +10,6 @@ import {
 
 const overlayRootId = "overlay-root";
 
-// Lobby / in-room settings we want to remember between renders
 let currentRoundTime = 20; // seconds
 let currentMaxRounds = 5;
 let lastLobbyContext = null; 

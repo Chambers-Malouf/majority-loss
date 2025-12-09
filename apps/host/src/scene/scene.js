@@ -11,14 +11,12 @@ import { cutsceneActive } from "../cutscenes/cutsceneCamera.js";
 import { AudioManager } from "../audio/audioManager.js";
 
 let scene, camera, renderer;
-const avatars = new Map(); // playerId -> THREE.Group
-const readyBadges = new Map(); // playerId -> { sprite, state }
+const avatars = new Map(); 
+const readyBadges = new Map(); 
 const clock = new THREE.Clock();
 
-// Speech bubbles for AI in solo mode: aiName -> { sprite }
 const speechBubbles = new Map();
 
-// Look state (per device, only applied to my avatar)
 let pointerDown = false;
 let lastPointerX = 0;
 let lastPointerY = 0;
@@ -71,9 +69,7 @@ let chalkInRoomHandlerAttached = false;
 let inRoomTapHandler = null;
 let onHostGameSettingsClick = null;
 
-// ================================
-// 🎨 HOST SETTINGS (CHALKBOARD)
-// ================================
+//HOST SETTINGS (CHALKBOARD)
 export function setChalkHostSettingsView(centerBoard, { roundTime, maxRounds }) {
   if (!centerBoard || !centerBoard.context) return;
 
@@ -114,8 +110,6 @@ export function setChalkHostSettingsView(centerBoard, { roundTime, maxRounds }) 
    PUBLIC: PLAY INTRO + WINNER CUTSCENES SAFELY
 ------------------------------------------------------------------- */
 
-// Solo or Multiplayer: BEFORE first question
-// Solo or Multiplayer: BEFORE first question
 export function playIntroFromScene(onFinish = () => {}) {
   if (!camera) {
     console.warn("⚠️ No camera available for intro cutscene");
@@ -134,15 +128,13 @@ export function playIntroFromScene(onFinish = () => {}) {
 
   console.log("🎬 Starting INTRO cutscene from scene.js");
 
-  // ⭐ PULL THE REAL ROUND COUNT
   const roundCount = window.__maxRounds || 5;
 
   console.log("🎯 window.__maxRounds =", window.__maxRounds);
   console.log("🎯 Using roundCount =", roundCount);
 
-  // Correct call
   playIntroCutscene(
-    roundCount,           // <-- NOW CORRECT
+    roundCount,           
     () => {
       AudioManager.stop("intro");
       AudioManager.play("main");
@@ -367,7 +359,6 @@ function updateOrientationOverlay() {
   }
 }
 
-// Hide all avatars except the winner(s)
 export function hideNonWinners(winnerNames = []) {
   for (const [id, av] of avatars.entries()) {
     const name = av.userData?.playerName;
@@ -421,7 +412,6 @@ function onPointerUp(e) {
 
   const TAP_THRESHOLD_SQ = 12 * 12;
   if (dragDistanceSq <= TAP_THRESHOLD_SQ) {
-    // Question mode tap → option selection
     handleChalkClick(e);
   }
 }

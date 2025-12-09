@@ -21,12 +21,12 @@ export async function getRandomQuestionWithOptions(excludeIds = []) {
     (excludeIds || []).map((v) => Number(v))
   );
 
-  // 3) Filter down to questions we haven't used yet
+  // 3) Filter down to questions I haven't used yet
   const available = allQuestions.filter(
     (row) => !excludeSet.has(Number(row.id))
   );
 
-  // 4) If we've used them all, fall back to full list
+  // 4) If used them all, fall back to full list
   const pickFrom = available.length ? available : allQuestions;
 
   // 5) Pick one at random
